@@ -1,0 +1,16 @@
+# Zig build artifacts
+.zig-cache/
+zig-out/
+zig-pkg/
+
+# Local Zig toolchain
+tools/zig-mach/
+tools/zig.tar.xz
+
+# PC-98 BIOS / Font ROMs (copyrighted — supply locally)
+*.rom
+*.bmp
+
+# Editor / OS
+.DS_Store
+*.swp
