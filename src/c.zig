@@ -11,5 +11,6 @@ pub const c = @cImport({
 
 pub extern fn debug_print_offsets() void;
 pub extern fn pccore_init_config() void;
+pub extern fn np2_set_datadir(dir: [*:0]const u8) void;
 
 pub extern var pc98_framebuffer: [640 * 480]u16;

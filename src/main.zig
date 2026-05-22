@@ -27,6 +27,16 @@ export fn init() void {
         .logger = .{ .func = sokol.log.func },
     });
 
+    // --- NP2kai data directory (OS-conventional location for ROMs etc.) ---
+    var gpa = std.heap.page_allocator;
+    if (resolveDataDir(gpa)) |dir| {
+        std.debug.print(">>> data dir: {s}\n", .{dir});
+        cz.np2_set_datadir(dir.ptr);
+        gpa.free(dir);
+    } else |err| {
+        std.debug.print("!! could not resolve data dir: {s}\n", .{@errorName(err)});
+    }
+
     // --- NP2kai core boot ---
     cz.pccore_init_config();
     c.pccore_init();
@@ -201,6 +211,17 @@ export fn frame() void {
 
 export fn cleanup() void {
     sg.shutdown();
+}
+
+fn resolveDataDir(allocator: std.mem.Allocator) ![:0]u8 {
+    const app_name = "UsaProject";
+    const home_ptr = std.c.getenv("HOME") orelse return error.NoHome;
+    const home = std.mem.span(home_ptr);
+    return switch (builtin.os.tag) {
+        .macos => try std.fmt.allocPrintSentinel(allocator, "{s}/Library/Application Support/{s}", .{ home, app_name }, 0),
+        .linux => try std.fmt.allocPrintSentinel(allocator, "{s}/.local/share/{s}", .{ home, app_name }, 0),
+        else => error.UnsupportedOS,
+    };
 }
 
 pub fn main() void {

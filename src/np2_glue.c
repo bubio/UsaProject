@@ -1,4 +1,5 @@
 #include <compiler.h>
+#include <common/milstr.h>
 #include <scrnmng.h>
 #include <soundmng.h>
 #include <sysmng.h>
@@ -129,15 +130,61 @@ short file_close(FILEH handle) { if (handle) fclose(handle); return 0; }
 FILELEN file_getsize(FILEH handle) { if (!handle) return 0; long pos = ftell(handle); fseek(handle, 0, SEEK_END); long size = ftell(handle); fseek(handle, pos, SEEK_SET); return size; }
 short file_delete(const OEMCHAR *path) { if (!path || !path[0]) return FAILURE; return remove(path); }
 short file_attr(const OEMCHAR *path) { (void)path; return 0; }
-OEMCHAR *file_getcd(const OEMCHAR *path) { return (OEMCHAR*)path; }
-void file_catname(OEMCHAR *path, const OEMCHAR *name, int maxlen) { if (path && name) strncat(path, name, maxlen); }
-void file_setcd(const OEMCHAR *exepath) { (void)exepath; }
+// --- path/cwd management (modeled after np2kai/sdl/dosio.c) ---
+static OEMCHAR curpath[MAX_PATH] = "./";
+static OEMCHAR *curfilep = curpath + 2;
+
+OEMCHAR *file_getname(const OEMCHAR *path); // forward decl
+
+OEMCHAR *file_getcd(const OEMCHAR *path) {
+    if (path) {
+        milstr_ncpy(curfilep, path, (int)(sizeof(curpath) - (curfilep - curpath)));
+    }
+    return curpath;
+}
+
+void file_catname(OEMCHAR *path, const OEMCHAR *name, int maxlen) {
+    if (!path || !name) return;
+    while (maxlen > 0) {
+        if (*path == '\0') break;
+        path++;
+        maxlen--;
+    }
+    milstr_ncpy(path, name, maxlen);
+}
+
+void file_setcd(const OEMCHAR *exepath) {
+    if (!exepath) return;
+    milstr_ncpy(curpath, exepath, sizeof(curpath));
+    curfilep = file_getname(curpath);
+}
+
+// Called from main.zig with the OS-specific data directory (e.g.
+// ~/Library/Application Support/UsaProject). Trailing '/' is enforced so
+// curfilep ends up at the end of the directory string and file_getcd("X")
+// produces "<dir>/X".
+void np2_set_datadir(const OEMCHAR *dir) {
+    if (!dir || !dir[0]) return;
+    size_t n = strlen(dir);
+    if (n + 2 >= sizeof(curpath)) return;
+    memcpy(curpath, dir, n);
+    if (curpath[n - 1] != '/') {
+        curpath[n] = '/';
+        n++;
+    }
+    curpath[n] = '\0';
+    curfilep = curpath + n;
+}
 FILEH file_open_c(const OEMCHAR *path) { return file_open(path); }
 FILEH file_open_rb_c(const OEMCHAR *path) { return file_open_rb(path); }
 FILEH file_create_c(const OEMCHAR *path) { return file_create(path); }
 short file_delete_c(const OEMCHAR *path) { return file_delete(path); }
 short file_attr_c(const OEMCHAR *path) { return file_attr(path); }
-void file_cutname(OEMCHAR *path) { (void)path; }
+void file_cutname(OEMCHAR *path) {
+    if (!path) return;
+    OEMCHAR *p = file_getname(path);
+    *p = '\0';
+}
 OEMCHAR *file_getext(const OEMCHAR *path) {
     OEMCHAR *p = (OEMCHAR *)path;
     OEMCHAR *ret = NULL;
