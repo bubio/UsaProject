@@ -1,5 +1,5 @@
 #include <compiler.h>
-#include <common/milstr.h>
+#include "np2_path.h"
 #include <scrnmng.h>
 #include <soundmng.h>
 #include <sysmng.h>
@@ -108,21 +108,30 @@ void commng_initialize(void) {}
 // DOSIO stubs
 void dosio_init(void) {}
 void dosio_term(void) {}
-FILEH file_open(const OEMCHAR *path) { 
-    if (!path || !path[0]) return NULL; 
+FILEH file_open(const OEMCHAR *path) {
+    if (!path || !path[0]) return NULL;
     FILEH h = fopen(path, "rb+");
     if (!h) printf("file_open failed: %s (errno: %d)\n", path, errno);
+#ifdef DEBUG_DOSIO
     else printf("file_open: %s -> %p\n", path, h);
-    return h; 
+#endif
+    return h;
 }
-FILEH file_open_rb(const OEMCHAR *path) { 
-    if (!path || !path[0]) return NULL; 
+FILEH file_open_rb(const OEMCHAR *path) {
+    if (!path || !path[0]) return NULL;
     FILEH h = fopen(path, "rb");
     if (!h) printf("file_open_rb failed: %s (errno: %d)\n", path, errno);
+#ifdef DEBUG_DOSIO
     else printf("file_open_rb: %s -> %p\n", path, h);
-    return h; 
+#endif
+    return h;
 }
-FILEH file_create(const OEMCHAR *path) { if (!path || !path[0]) return NULL; return fopen(path, "wb+"); }
+FILEH file_create(const OEMCHAR *path) {
+    if (!path || !path[0]) return NULL;
+    FILEH h = fopen(path, "wb+");
+    if (!h) printf("file_create failed: %s (errno: %d)\n", path, errno);
+    return h;
+}
 FILEPOS file_seek(FILEH handle, FILEPOS pointer, int method) { if (!handle) return 0; fseek(handle, pointer, method); return ftell(handle); }
 UINT file_read(FILEH handle, void *data, UINT length) { if (!handle) return 0; return fread(data, 1, length, handle); }
 UINT file_write(FILEH handle, const void *data, UINT length) { if (!handle) return 0; return fwrite(data, 1, length, handle); }
@@ -130,71 +139,15 @@ short file_close(FILEH handle) { if (handle) fclose(handle); return 0; }
 FILELEN file_getsize(FILEH handle) { if (!handle) return 0; long pos = ftell(handle); fseek(handle, 0, SEEK_END); long size = ftell(handle); fseek(handle, pos, SEEK_SET); return size; }
 short file_delete(const OEMCHAR *path) { if (!path || !path[0]) return FAILURE; return remove(path); }
 short file_attr(const OEMCHAR *path) { (void)path; return 0; }
-// --- path/cwd management (modeled after np2kai/sdl/dosio.c) ---
-static OEMCHAR curpath[MAX_PATH] = "./";
-static OEMCHAR *curfilep = curpath + 2;
-
-OEMCHAR *file_getname(const OEMCHAR *path); // forward decl
-
-OEMCHAR *file_getcd(const OEMCHAR *path) {
-    if (path) {
-        milstr_ncpy(curfilep, path, (int)(sizeof(curpath) - (curfilep - curpath)));
-    }
-    return curpath;
-}
-
-void file_catname(OEMCHAR *path, const OEMCHAR *name, int maxlen) {
-    if (!path || !name) return;
-    while (maxlen > 0) {
-        if (*path == '\0') break;
-        path++;
-        maxlen--;
-    }
-    milstr_ncpy(path, name, maxlen);
-}
-
-void file_setcd(const OEMCHAR *exepath) {
-    if (!exepath) return;
-    milstr_ncpy(curpath, exepath, sizeof(curpath));
-    curfilep = file_getname(curpath);
-}
-
-// Called from main.zig with the OS-specific data directory (e.g.
-// ~/Library/Application Support/UsaProject). Trailing '/' is enforced so
-// curfilep ends up at the end of the directory string and file_getcd("X")
-// produces "<dir>/X".
-void np2_set_datadir(const OEMCHAR *dir) {
-    if (!dir || !dir[0]) return;
-    size_t n = strlen(dir);
-    if (n + 2 >= sizeof(curpath)) return;
-    memcpy(curpath, dir, n);
-    if (curpath[n - 1] != '/') {
-        curpath[n] = '/';
-        n++;
-    }
-    curpath[n] = '\0';
-    curfilep = curpath + n;
-}
-FILEH file_open_c(const OEMCHAR *path) { return file_open(path); }
-FILEH file_open_rb_c(const OEMCHAR *path) { return file_open_rb(path); }
-FILEH file_create_c(const OEMCHAR *path) { return file_create(path); }
-short file_delete_c(const OEMCHAR *path) { return file_delete(path); }
-short file_attr_c(const OEMCHAR *path) { return file_attr(path); }
-void file_cutname(OEMCHAR *path) {
-    if (!path) return;
-    OEMCHAR *p = file_getname(path);
-    *p = '\0';
-}
-OEMCHAR *file_getext(const OEMCHAR *path) {
-    OEMCHAR *p = (OEMCHAR *)path;
-    OEMCHAR *ret = NULL;
-    if (p == NULL) return NULL;
-    while (*p) {
-        if (*p == '.') ret = p + 1;
-        p++;
-    }
-    return ret;
-}
+// Path / cwd helpers (file_getcd, file_catname, file_setcd, file_cutname,
+// file_getext, file_getname, np2_set_datadir) are defined in np2_path.c.
+// _c variants resolve the name relative to the current data directory
+// (curpath in np2_path.c) — matches SDL backend semantics.
+FILEH file_open_c(const OEMCHAR *path) { return file_open(file_getcd(path)); }
+FILEH file_open_rb_c(const OEMCHAR *path) { return file_open_rb(file_getcd(path)); }
+FILEH file_create_c(const OEMCHAR *path) { return file_create(file_getcd(path)); }
+short file_delete_c(const OEMCHAR *path) { return file_delete(file_getcd(path)); }
+short file_attr_c(const OEMCHAR *path) { return file_attr(file_getcd(path)); }
 void file_cutext(OEMCHAR *path) { (void)path; }
 void file_cutseparator(OEMCHAR *path) { (void)path; }
 void file_setseparator(OEMCHAR *path, int maxlen) { (void)path; (void)maxlen; }
@@ -205,16 +158,6 @@ short file_getdatetime(FILEH handle, DOSDATE *dosdate, DOSTIME *dostime) { (void
 short file_rename(const OEMCHAR *existpath, const OEMCHAR *newpath) { (void)existpath; (void)newpath; return FAILURE; }
 short file_dircreate(const OEMCHAR *path) { (void)path; return FAILURE; }
 short file_dirdelete(const OEMCHAR *path) { (void)path; return FAILURE; }
-OEMCHAR *file_getname(const OEMCHAR *path) {
-    OEMCHAR *p = (OEMCHAR *)path;
-    OEMCHAR *ret = p;
-    if (p == NULL) return NULL;
-    while (*p) {
-        if (*p == '/' || *p == '\\') ret = p + 1;
-        p++;
-    }
-    return ret;
-}
 
 // Time management stubs
 BRESULT timemng_gettime(_SYSTIME *systime) { (void)systime; return FAILURE; }

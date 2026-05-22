@@ -154,6 +154,7 @@ pub fn build(b: *std.Build) void {
 
     const platform_sources = &[_][]const u8{
         "src/np2_glue.c",
+        "src/np2_path.c",
     };
     exe.root_module.addCSourceFiles(.{
         .files = platform_sources,
@@ -173,4 +174,44 @@ pub fn build(b: *std.Build) void {
 
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
+
+    // ----- Tests -----
+    const test_step = b.step("test", "Run unit tests");
+
+    // Pure-Zig tests (pixel conversion, datadir resolution)
+    const zig_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/tests.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(zig_tests).step);
+
+    // C-path tests (exercises np2_path.c via Zig externs).
+    // We link only np2_path.c + milstr.c so tests don't drag in NP2kai globals.
+    const path_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/path_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    for (np2_includes) |include| {
+        path_tests.root_module.addIncludePath(b.path(include));
+    }
+    path_tests.root_module.addCSourceFiles(.{
+        .files = &.{ "src/np2_path.c", "core/np2kai/common/milstr.c" },
+        .flags = full_flags,
+    });
+    for (np2_defines) |define| {
+        const eq_idx = std.mem.indexOfScalar(u8, define, '=');
+        if (eq_idx) |idx| {
+            path_tests.root_module.addCMacro(define[0..idx], define[idx + 1 ..]);
+        } else {
+            path_tests.root_module.addCMacro(define, "1");
+        }
+    }
+    path_tests.root_module.link_libc = true;
+    test_step.dependOn(&b.addRunArtifact(path_tests).step);
 }

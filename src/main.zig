@@ -6,20 +6,23 @@ const sg = sokol.gfx;
 const sglue = sokol.glue;
 const cz = @import("c.zig");
 const c = cz.c;
+const pixel = @import("pixel.zig");
+const datadir = @import("datadir.zig");
 
-var state = struct {
+const FB_WIDTH = 640;
+const FB_HEIGHT = 400;
+
+const State = struct {
     pipeline: sg.Pipeline = .{},
     bindings: sg.Bindings = .{},
     pass_action: sg.PassAction = .{},
     image: sg.Image = .{},
     view: sg.View = .{},
     sampler: sg.Sampler = .{},
-}{};
+};
 
-const FB_WIDTH = 640;
-const FB_HEIGHT = 400;
-
-var test_data: [FB_WIDTH * FB_HEIGHT]u32 = undefined;
+var state: State = .{};
+var fb_rgba: [FB_WIDTH * FB_HEIGHT]u32 = undefined;
 
 export fn init() void {
     sg.setup(.{
@@ -27,20 +30,11 @@ export fn init() void {
         .logger = .{ .func = sokol.log.func },
     });
 
-    // --- NP2kai data directory (OS-conventional location for ROMs etc.) ---
-    var gpa = std.heap.page_allocator;
-    if (resolveDataDir(gpa)) |dir| {
-        std.debug.print(">>> data dir: {s}\n", .{dir});
-        cz.np2_set_datadir(dir.ptr);
-        gpa.free(dir);
-    } else |err| {
-        std.debug.print("!! could not resolve data dir: {s}\n", .{@errorName(err)});
-    }
+    setupDataDir();
 
-    // --- NP2kai core boot ---
     cz.pccore_init_config();
-    c.pccore_init();
-    c.pccore_reset();
+    cz.pccore_init();
+    cz.pccore_reset();
 
     state.image = sg.makeImage(.{
         .width = FB_WIDTH,
@@ -77,11 +71,45 @@ export fn init() void {
     state.bindings.views[0] = state.view;
     state.bindings.samplers[0] = state.sampler;
 
-    const is_macos = (builtin.os.tag == .macos);
+    state.pipeline = sg.makePipeline(.{
+        .shader = makeBlitShader(),
+        .layout = .{
+            .attrs = init: {
+                var attrs: [16]sg.VertexAttrState = @splat(.{});
+                attrs[0].format = .FLOAT3;
+                attrs[1].format = .FLOAT2;
+                break :init attrs;
+            },
+        },
+        .index_type = .UINT16,
+    });
 
-    const shd = sg.makeShader(.{
+    state.pass_action.colors[0] = .{
+        .load_action = .CLEAR,
+        .clear_value = .{ .r = 0.0, .g = 0.0, .b = 0.0, .a = 1.0 },
+    };
+}
+
+fn setupDataDir() void {
+    var buf: [4096]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buf);
+    const dir = datadir.resolveDefault(fba.allocator()) catch |err| {
+        std.debug.print("!! could not resolve data dir: {s}\n", .{@errorName(err)});
+        return;
+    };
+    datadir.ensureExists(dir) catch |err| {
+        std.debug.print("!! could not create data dir '{s}': {s}\n", .{ dir, @errorName(err) });
+        // Fall through — np2_set_datadir is still useful for read-only files.
+    };
+    std.debug.print(">>> data dir: {s}\n", .{dir});
+    cz.np2_set_datadir(dir.ptr);
+}
+
+fn makeBlitShader() sg.Shader {
+    const is_macos = (builtin.os.tag == .macos);
+    return sg.makeShader(.{
         .vertex_func = .{
-            .source = if (!is_macos) 
+            .source = if (!is_macos)
                 \\#version 450
                 \\layout(location=0) in vec4 position;
                 \\layout(location=1) in vec2 texcoord0;
@@ -160,45 +188,16 @@ export fn init() void {
             break :init p;
         },
     });
-
-    state.pipeline = sg.makePipeline(.{
-        .shader = shd,
-        .layout = .{
-            .attrs = init: {
-                var attrs: [16]sg.VertexAttrState = @splat(.{});
-                attrs[0].format = .FLOAT3;
-                attrs[1].format = .FLOAT2;
-                break :init attrs;
-            },
-        },
-        .index_type = .UINT16,
-    });
-
-    state.pass_action.colors[0] = .{
-        .load_action = .CLEAR,
-        .clear_value = .{ .r = 1.0, .g = 0.0, .b = 0.0, .a = 1.0 }, // RED
-    };
 }
 
 export fn frame() void {
-    // Run one PC-98 frame
-    c.pccore_exec(true);
-    c.scrndraw_redraw();
+    cz.pccore_exec(true);
+    cz.scrndraw_redraw();
 
-    // RGB565 -> RGBA8 conversion of pc98_framebuffer
-    for (0..FB_WIDTH * FB_HEIGHT) |i| {
-        const px: u16 = cz.pc98_framebuffer[i];
-        const r5: u32 = (px >> 11) & 0x1f;
-        const g6: u32 = (px >> 5) & 0x3f;
-        const b5: u32 = px & 0x1f;
-        const r8: u32 = (r5 << 3) | (r5 >> 2);
-        const g8: u32 = (g6 << 2) | (g6 >> 4);
-        const b8: u32 = (b5 << 3) | (b5 >> 2);
-        test_data[i] = 0xFF000000 | (b8 << 16) | (g8 << 8) | r8;
-    }
+    pixel.rgb565BufferToRgba8(&fb_rgba, cz.pc98_framebuffer[0 .. FB_WIDTH * FB_HEIGHT]);
 
     var img_data = sg.ImageData{};
-    img_data.mip_levels[0] = sg.asRange(&test_data);
+    img_data.mip_levels[0] = sg.asRange(&fb_rgba);
     sg.updateImage(state.image, img_data);
 
     sg.beginPass(.{ .action = state.pass_action, .swapchain = sglue.swapchain() });
@@ -210,18 +209,8 @@ export fn frame() void {
 }
 
 export fn cleanup() void {
+    cz.pccore_term();
     sg.shutdown();
-}
-
-fn resolveDataDir(allocator: std.mem.Allocator) ![:0]u8 {
-    const app_name = "UsaProject";
-    const home_ptr = std.c.getenv("HOME") orelse return error.NoHome;
-    const home = std.mem.span(home_ptr);
-    return switch (builtin.os.tag) {
-        .macos => try std.fmt.allocPrintSentinel(allocator, "{s}/Library/Application Support/{s}", .{ home, app_name }, 0),
-        .linux => try std.fmt.allocPrintSentinel(allocator, "{s}/.local/share/{s}", .{ home, app_name }, 0),
-        else => error.UnsupportedOS,
-    };
 }
 
 pub fn main() void {
@@ -229,9 +218,9 @@ pub fn main() void {
         .init_cb = init,
         .frame_cb = frame,
         .cleanup_cb = cleanup,
-        .width = 640,
-        .height = 400,
-        .window_title = "UsaProject - Simple Sampling Test",
+        .width = FB_WIDTH,
+        .height = FB_HEIGHT,
+        .window_title = "UsaProject",
         .high_dpi = false,
         .icon = .{ .sokol_default = true },
         .logger = .{ .func = sokol.log.func },

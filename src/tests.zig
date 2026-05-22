@@ -1,0 +1,5 @@
+// Aggregator for pure-Zig unit tests.
+test {
+    _ = @import("pixel.zig");
+    _ = @import("datadir.zig");
+}
