@@ -53,8 +53,19 @@ NP2kaiのコアを利用しつつ、アプリケーション層をZigおよびso
 - [x] FIFO 空き容量で throttle してドロップアウト/ぶちぶち音を防止。
 - [x] `snd86opt` を IRQ12/ポート0x188 に設定し FM 検出を有効化。
 
-### Phase 7: Native Dialogs & Integration
-- [ ] 実行中のディスク入れ替え等のため、OSネイティブなファイルダイアログ（NFD等）を呼び出せるようにする。
+### Phase 7: UI Overlay & Native Dialogs
+- [x] **Step 1 — レイアウト基盤 (2026-05-23)**: sokol_debugtext (sdtx) を導入。
+      ウィンドウを 640×440 に拡張し、上 20px をメニュー領域、下 20px をステータス
+      バーとして確保。PC-98 描画用クアッドを NDC で `±(FB_HEIGHT/WIN_HEIGHT)`
+      にオフセット。プレースホルダ表示で動作確認済み。
+- [ ] **Step 2 — ステータスバー**: FPS / CPU クロック / FDD アクセスランプを
+      実データで表示。FPS は `sapp.frameDuration()` から算出済み。残りは NP2kai
+      の状態取得 C ブリッジを追加する。
+- [ ] **Step 3 — メニューバー**: クリック検出 + ドロップダウン (File / System /
+      Help) を sdtx ベースで実装。
+- [ ] **Step 4 — NFD 統合**: nativefiledialog-extended を build.zig に組み込み、
+      メニュー項目から OS ネイティブダイアログを呼び出して `np2_insert_fdd` /
+      `np2_insert_hdd` に渡す。
 
 ## 4. Verification
 各フェーズの完了時に、コンパイルが通ること、および想定するサブシステムが機能しているかを手動およびテストコードで検証する。

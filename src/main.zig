@@ -13,6 +13,8 @@ const cli = @import("cli.zig");
 const scheduler = @import("frame_scheduler.zig");
 const input = @import("input.zig");
 const audio = @import("audio.zig");
+const ui = @import("ui.zig");
+const sdtx = sokol.debugtext;
 
 const blit_vs_glsl = @embedFile("shaders/blit.vs.glsl");
 const blit_fs_glsl = @embedFile("shaders/blit.fs.glsl");
@@ -21,6 +23,12 @@ const blit_fs_metal = @embedFile("shaders/blit.fs.metal");
 
 const FB_WIDTH = 640;
 const FB_HEIGHT = 400;
+const WIN_WIDTH = FB_WIDTH;
+const WIN_HEIGHT = FB_HEIGHT + ui.MENU_HEIGHT + ui.STATUS_HEIGHT;
+
+// PC-98 framebuffer quad in NDC: leaves MENU_HEIGHT px at top and STATUS_HEIGHT px at bottom.
+const FB_NDC_TOP: f32 = 1.0 - 2.0 * @as(f32, @floatFromInt(ui.MENU_HEIGHT)) / @as(f32, @floatFromInt(WIN_HEIGHT));
+const FB_NDC_BOT: f32 = 1.0 - 2.0 * @as(f32, @floatFromInt(ui.MENU_HEIGHT + FB_HEIGHT)) / @as(f32, @floatFromInt(WIN_HEIGHT));
 
 const State = struct {
     pipeline: sg.Pipeline = .{},
@@ -66,6 +74,8 @@ export fn init() void {
         .logger = .{ .func = sokol.log.func },
     });
 
+    ui.setup();
+
     setupDataDir();
 
     cz.pccore_init_config();
@@ -93,10 +103,10 @@ export fn init() void {
     });
 
     const vertices = [_]f32{
-        -1.0,  1.0, 0.5,   0.0, 0.0,
-         1.0,  1.0, 0.5,   1.0, 0.0,
-         1.0, -1.0, 0.5,   1.0, 1.0,
-        -1.0, -1.0, 0.5,   0.0, 1.0,
+        -1.0, FB_NDC_TOP, 0.5,   0.0, 0.0,
+         1.0, FB_NDC_TOP, 0.5,   1.0, 0.0,
+         1.0, FB_NDC_BOT, 0.5,   1.0, 1.0,
+        -1.0, FB_NDC_BOT, 0.5,   0.0, 1.0,
     };
     state.bindings.vertex_buffers[0] = sg.makeBuffer(.{
         .data = sg.asRange(&vertices),
@@ -230,16 +240,27 @@ export fn frame() void {
     img_data.mip_levels[0] = sg.asRange(&fb_rgba);
     sg.updateImage(state.image, img_data);
 
+    // Update UI overlay state.
+    const dt = sapp.frameDuration();
+    const fps: f32 = if (dt > 0.0) @floatCast(1.0 / dt) else 0.0;
+    ui.draw(WIN_WIDTH, WIN_HEIGHT, .{
+        .fps = fps,
+        .cpu_mhz = 0.0,
+        .fdd_access = .{ false, false, false, false },
+    });
+
     sg.beginPass(.{ .action = state.pass_action, .swapchain = sglue.swapchain() });
     sg.applyPipeline(state.pipeline);
     sg.applyBindings(state.bindings);
     sg.draw(0, 6, 1);
+    sdtx.draw();
     sg.endPass();
     sg.commit();
 }
 
 export fn cleanup() void {
     cz.pccore_term();
+    ui.shutdown();
     saudio.shutdown();
     sg.shutdown();
 }
@@ -274,8 +295,8 @@ pub fn main(proc: std.process.Init.Minimal) void {
         .frame_cb = frame,
         .cleanup_cb = cleanup,
         .event_cb = input.handleEvent,
-        .width = FB_WIDTH,
-        .height = FB_HEIGHT,
+        .width = WIN_WIDTH,
+        .height = WIN_HEIGHT,
         .window_title = "UsaProject",
         .high_dpi = false,
         .icon = .{ .sokol_default = true },
