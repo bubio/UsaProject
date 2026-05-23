@@ -6,7 +6,9 @@ pub const c = @cImport({
     @cInclude("soundmng.h");
     @cInclude("sysmng.h");
     @cInclude("taskmng.h");
+    @cInclude("keystat.h");
     @cInclude("vram/scrndraw.h");
+    @cInclude("sound/sound.h");
 });
 
 // NP2kai core entry points (re-exported through c.zig so callers don't
@@ -16,6 +18,12 @@ pub const pccore_term = c.pccore_term;
 pub const pccore_reset = c.pccore_reset;
 pub const pccore_exec = c.pccore_exec;
 pub const scrndraw_redraw = c.scrndraw_redraw;
+pub const keystat_keydown = c.keystat_keydown;
+pub const keystat_keyup = c.keystat_keyup;
+pub const sound_sync = c.sound_sync;
+pub const sound_pcmlock = c.sound_pcmlock;
+pub const sound_pcmunlock = c.sound_pcmunlock;
+pub const sound_get_active_samples = c.sound_get_active_samples;
 
 // Glue layer (defined in src/np2_glue.c and src/np2_path.c)
 pub extern fn pccore_init_config() void;

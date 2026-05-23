@@ -78,12 +78,57 @@ void scrnmng_update(void) {}
 void scrnmng_updatefsres(void) {}
 
 // Sound management stubs
-UINT soundmng_create(UINT rate, UINT ms) { (void)ms; return rate ? rate : 44100; }
+#include <soundmng.h>
+#include <sound/sound.h>
+
+extern void zig_audio_push(const int32_t* pcm, uint32_t count);
+extern uint32_t zig_audio_writable(void);
+
+// sndstream.samples — the chunk size NP2kai synthesizes per pcmlock/pcmunlock
+// cycle. We also push exactly this many stereo frames to sokol_audio each
+// soundmng_sync, matching the SDL backend's fixed-frame design.
+static UINT g_sound_frame_samples = 0;
+
+UINT soundmng_get_frame_samples(void) { return g_sound_frame_samples; }
+
+UINT soundmng_create(UINT rate, UINT ms) {
+    // Mirror the SDL backend: half of (rate*ms) rounded up to a power of two.
+    // With rate=44100, ms=150 → 4096 stereo frames per chunk.
+    if (ms < 20) ms = 20;
+    else if (ms > 1000) ms = 1000;
+    UINT samples = (rate * ms) / 1000 / 2;
+    UINT pow2 = 32;
+    while (pow2 < samples) pow2 <<= 1;
+    g_sound_frame_samples = pow2;
+    printf(">>> soundmng_create: rate=%u, ms=%u, samples=%u\n", rate, ms, pow2);
+    return pow2;
+}
+
 void soundmng_destroy(void) {}
 void soundmng_reset(void) {}
 void soundmng_play(void) {}
 void soundmng_stop(void) {}
-void soundmng_sync(void) {}
+
+void soundmng_sync(void) {
+    // sound_sync() invokes this every 100 generated samples (~2.3ms), but each
+    // pcmlock/unlock cycle produces a full chunk (~93ms of audio). Pushing on
+    // every call floods the audio FIFO ~40x faster than it drains, so most
+    // frames get dropped and playback turns into stuttering bursts.
+    //
+    // Throttle by checking sokol's writable FIFO space: skip until there's
+    // room for a full chunk. The CPU keeps advancing in the meantime;
+    // streamprepare() called from sound_sync() continues filling sndstream
+    // until it's full (remain → 0), then idles. When we finally lock, the
+    // buffer already holds ~93ms of correctly-paced audio and we push that.
+    if (g_sound_frame_samples == 0) return;
+    if (zig_audio_writable() < g_sound_frame_samples) return;
+
+    const SINT32 *pcm = sound_pcmlock();
+    if (pcm) {
+        zig_audio_push(pcm, g_sound_frame_samples);
+        sound_pcmunlock(pcm);
+    }
+}
 void soundmng_setreverse(BOOL reverse) { (void)reverse; }
 BRESULT soundmng_pcmplay(UINT num, BOOL loop) { (void)num; (void)loop; return FAILURE; }
 void soundmng_pcmstop(UINT num) { (void)num; }
@@ -261,20 +306,34 @@ void debug_print_offsets(void) {
 void pccore_init_config(void) {
     memset(&np2cfg, 0, sizeof(np2cfg));
     np2cfg.baseclock = 2457600;
-    np2cfg.multiple = 20;
+    np2cfg.multiple = 4; // 10MHz
     np2cfg.samplingrate = 44100;
     np2cfg.delayms = 150;
     np2cfg.BEEP_VOL = 3;
-    for (int i=0; i<6; i++) np2cfg.vol14[i] = 64;
-    np2cfg.vol_master = 64;
-    np2cfg.vol_fm = 64;
-    np2cfg.vol_ssg = 64;
-    np2cfg.vol_adpcm = 64;
-    np2cfg.vol_pcm = 64;
-    np2cfg.vol_rhythm = 64;
-    np2cfg.vol_midi = 64;
+    np2cfg.SOUND_SW = 0x04; // SOUNDID_PC_9801_86
+    np2cfg.usefmgen = 0;
+    for (int i=0; i<6; i++) np2cfg.vol14[i] = 100;
+    np2cfg.vol_master = 100;
+    np2cfg.vol_fm = 100;
+    np2cfg.vol_ssg = 100;
+    np2cfg.vol_adpcm = 100;
+    np2cfg.vol_pcm = 100;
+    np2cfg.vol_rhythm = 100;
+    np2cfg.vol_midi = 100;
     strcpy(np2cfg.model, "VX");
     np2cfg.fddequip = 0x0f; // enable all 4 FDD slots
+
+    // Sound board defaults — without these, OPNA gets attached to the wrong
+    // I/O port and games can't detect the FM board, falling back to BEEP.
+    //   snd86opt: bit0=1 → PC-9801-86 OPNA at port 0x188 (standard);
+    //             bit4=1 → enable FM interrupt.
+    //   snd26opt: bit4=1 → PC-9801-26K OPN at port 0x88 (standard).
+    // snd86opt = bit0(=1 → I/O 0x188) | bits2-3(=0x0c → IRQ12 via the UI's
+    // ints[2]={0,0x04,0x0c,0x08} table) | bit4(=1 → enable FM interrupt).
+    // Without IRQ12 selected, opna_timer falls back to IRQ3 (s_irqtable[0])
+    // and most FM-driven music engines stall or fall back to BEEP.
+    np2cfg.snd86opt = 0x1d;
+    np2cfg.snd26opt = 0x10;
 }
 
 void np2_set_model(const char *name) {

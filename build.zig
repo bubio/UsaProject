@@ -192,11 +192,12 @@ pub fn build(b: *std.Build) void {
     // We link only np2_path.c + milstr.c so tests don't drag in NP2kai globals.
     const path_tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/path_test.zig"),
+            .root_source_file = b.path("src/c_tests.zig"),
             .target = target,
             .optimize = optimize,
         }),
     });
+    path_tests.root_module.addImport("sokol", dep_sokol.module("sokol"));
     for (np2_includes) |include| {
         path_tests.root_module.addIncludePath(b.path(include));
     }

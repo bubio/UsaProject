@@ -43,14 +43,15 @@ NP2kaiのコアを利用しつつ、アプリケーション層をZigおよびso
 - [ ] 480 ライン (31kHz) モード対応 — 解像度切替と sokol_app のウィンドウ
       リサイズ対応含む。Phase 5/6 と合わせて検討。
 
-### Phase 5: Input Handling & Shortcuts (← 次に着手)
-- [ ] sokol_app のキーボードイベントをPC-98のキーコードに変換してコアに送信。
-- [ ] リセットやディスクイジェクトなどの基本操作をショートカットキーに割り当てる。
+### Phase 5: Input Handling & Shortcuts
+- [x] sokol_app のキーボードイベントをPC-98のキーコードに変換してコアに送信。
+- [x] リセットやディスクイジェクトなどの基本操作をショートカットキーに割り当てる。
 
 ### Phase 6: Audio Output (sokol_audio)
-- [ ] `sokol_audio` を初期化し、ストリームコールバックを設定。
-- [ ] NP2kaiから生成されたPCMデータを取得し、sokol_audioのバッファに供給する。
-  (現状 `soundmng_*` は全て no-op スタブ。)
+- [x] `sokol_audio` を push モードで初期化。
+- [x] NP2kaiから生成されたPCMデータ(SINT32)をf32変換し、sokol_audioへ供給。
+- [x] FIFO 空き容量で throttle してドロップアウト/ぶちぶち音を防止。
+- [x] `snd86opt` を IRQ12/ポート0x188 に設定し FM 検出を有効化。
 
 ### Phase 7: Native Dialogs & Integration
 - [ ] 実行中のディスク入れ替え等のため、OSネイティブなファイルダイアログ（NFD等）を呼び出せるようにする。
@@ -69,8 +70,8 @@ NP2kaiのコアを利用しつつ、アプリケーション層をZigおよびso
 ## 5. Exit Criteria
 コマンドラインからディスクイメージを指定して起動し、sokolのウィンドウ内でゲームの映像が描画され、キー操作および音声出力が正常に行えること。
 
-**現状**: 映像までは Exit Criteria を満たす (Phase 1〜4 + 5 の半分=入力以外)。
-残るは入力 (Phase 5) と音声 (Phase 6)。
+**現状**: Phase 1〜6 完了。Exit Criteria (映像/入力/音声) を満たす。
+残るは Phase 7 (ネイティブダイアログ)。
 
 ## 6. 動作確認済みディスクイメージ
 

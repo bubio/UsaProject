@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const sokol = @import("sokol");
 const sapp = sokol.app;
 const sg = sokol.gfx;
+const saudio = sokol.audio;
 const sglue = sokol.glue;
 const cz = @import("c.zig");
 const c = cz.c;
@@ -10,6 +11,8 @@ const pixel = @import("pixel.zig");
 const datadir = @import("datadir.zig");
 const cli = @import("cli.zig");
 const scheduler = @import("frame_scheduler.zig");
+const input = @import("input.zig");
+const audio = @import("audio.zig");
 
 const blit_vs_glsl = @embedFile("shaders/blit.vs.glsl");
 const blit_fs_glsl = @embedFile("shaders/blit.fs.glsl");
@@ -33,9 +36,33 @@ var fb_rgba: [FB_WIDTH * FB_HEIGHT]u32 = undefined;
 var parsed_opts: ?cli.Options = null;
 var last_emu_ns: i128 = 0;
 
+// 音声バッファ（Zig側で変換用に使用）
+var audio_buffer: [4096 * 2]f32 = undefined;
+
+// Cから呼ばれる音声プッシュ関数
+export fn zig_audio_push(pcm: [*]const i32, count: u32) void {
+    const samples = @min(count, @as(u32, @intCast(audio_buffer.len / 2)));
+    audio.convertPcmToFloat(&audio_buffer, pcm, samples);
+    _ = saudio.push(&audio_buffer[0], @intCast(samples));
+}
+
+// FIFO に書き込み可能なフレーム数を返す。soundmng_sync 側で throttle に使う。
+export fn zig_audio_writable() u32 {
+    const w = saudio.expect();
+    if (w <= 0) return 0;
+    return @intCast(w);
+}
+
 export fn init() void {
     sg.setup(.{
         .environment = sglue.environment(),
+        .logger = .{ .func = sokol.log.func },
+    });
+
+    // sokol_audio 初期化
+    saudio.setup(.{
+        .sample_rate = 44100,
+        .num_channels = 2,
         .logger = .{ .func = sokol.log.func },
     });
 
@@ -189,9 +216,11 @@ export fn frame() void {
         var i: u32 = 1;
         while (i < decision.frames) : (i += 1) {
             cz.pccore_exec(false);
+            cz.sound_sync();
         }
         // Final frame: this is the one whose framebuffer we display.
         cz.pccore_exec(true);
+        cz.sound_sync();
         cz.scrndraw_redraw();
     }
 
@@ -211,6 +240,7 @@ export fn frame() void {
 
 export fn cleanup() void {
     cz.pccore_term();
+    saudio.shutdown();
     sg.shutdown();
 }
 
@@ -243,6 +273,7 @@ pub fn main(proc: std.process.Init.Minimal) void {
         .init_cb = init,
         .frame_cb = frame,
         .cleanup_cb = cleanup,
+        .event_cb = input.handleEvent,
         .width = FB_WIDTH,
         .height = FB_HEIGHT,
         .window_title = "UsaProject",
