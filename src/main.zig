@@ -9,6 +9,12 @@ const c = cz.c;
 const pixel = @import("pixel.zig");
 const datadir = @import("datadir.zig");
 const cli = @import("cli.zig");
+const scheduler = @import("frame_scheduler.zig");
+
+const blit_vs_glsl = @embedFile("shaders/blit.vs.glsl");
+const blit_fs_glsl = @embedFile("shaders/blit.fs.glsl");
+const blit_vs_metal = @embedFile("shaders/blit.vs.metal");
+const blit_fs_metal = @embedFile("shaders/blit.fs.metal");
 
 const FB_WIDTH = 640;
 const FB_HEIGHT = 400;
@@ -25,6 +31,7 @@ const State = struct {
 var state: State = .{};
 var fb_rgba: [FB_WIDTH * FB_HEIGHT]u32 = undefined;
 var parsed_opts: ?cli.Options = null;
+var last_emu_ns: i128 = 0;
 
 export fn init() void {
     sg.setup(.{
@@ -132,54 +139,11 @@ fn makeBlitShader() sg.Shader {
     const is_macos = (builtin.os.tag == .macos);
     return sg.makeShader(.{
         .vertex_func = .{
-            .source = if (!is_macos)
-                \\#version 450
-                \\layout(location=0) in vec4 position;
-                \\layout(location=1) in vec2 texcoord0;
-                \\out vec2 uv;
-                \\void main() {
-                \\  gl_Position = position;
-                \\  uv = texcoord0;
-                \\}
-            else
-                \\#include <metal_stdlib>
-                \\using namespace metal;
-                \\struct vs_in {
-                \\  float4 position [[attribute(0)]];
-                \\  float2 texcoord0 [[attribute(1)]];
-                \\};
-                \\struct vs_out {
-                \\  float4 position [[position]];
-                \\  float2 uv;
-                \\};
-                \\vertex vs_out _main(vs_in in [[stage_in]]) {
-                \\  vs_out out;
-                \\  out.position = in.position;
-                \\  out.uv = in.texcoord0;
-                \\  return out;
-                \\}
+            .source = if (is_macos) blit_vs_metal else blit_vs_glsl,
         },
         .fragment_func = .{
-            .entry = if (!is_macos) "main" else "_main",
-            .source = if (!is_macos)
-                \\#version 450
-                \\precision mediump float;
-                \\layout(binding=0) uniform texture2D tex;
-                \\layout(binding=0) uniform sampler smp;
-                \\in vec2 uv;
-                \\out vec4 frag_color;
-                \\void main() {
-                \\  frag_color = texture(sampler2D(tex, smp), uv);
-                \\}
-            else
-                \\#include <metal_stdlib>
-                \\using namespace metal;
-                \\struct fs_in {
-                \\  float2 uv;
-                \\};
-                \\fragment float4 _main(fs_in in [[stage_in]], texture2d<float> tex [[texture(0)]], sampler smp [[sampler(0)]]) {
-                \\  return tex.sample(smp, in.uv);
-                \\}
+            .entry = if (is_macos) "_main" else "main",
+            .source = if (is_macos) blit_fs_metal else blit_fs_glsl,
         },
         .views = init: {
             var v: [32]sg.ShaderView = @splat(.{});
@@ -214,8 +178,22 @@ fn makeBlitShader() sg.Shader {
 }
 
 export fn frame() void {
-    cz.pccore_exec(true);
-    cz.scrndraw_redraw();
+    var ts: std.c.timespec = undefined;
+    _ = std.c.clock_gettime(std.c.CLOCK.MONOTONIC, &ts);
+    const now: i128 = @as(i128, ts.sec) * std.time.ns_per_s + ts.nsec;
+    const decision = scheduler.decide(now, last_emu_ns);
+    last_emu_ns = decision.new_last_ns;
+
+    if (decision.frames > 0) {
+        // Catch-up frames: advance the emulator without triggering a redraw.
+        var i: u32 = 1;
+        while (i < decision.frames) : (i += 1) {
+            cz.pccore_exec(false);
+        }
+        // Final frame: this is the one whose framebuffer we display.
+        cz.pccore_exec(true);
+        cz.scrndraw_redraw();
+    }
 
     pixel.rgb565BufferToRgba8(&fb_rgba, cz.pc98_framebuffer[0 .. FB_WIDTH * FB_HEIGHT]);
 
