@@ -58,9 +58,10 @@ NP2kaiのコアを利用しつつ、アプリケーション層をZigおよびso
       ウィンドウを 640×440 に拡張し、上 20px をメニュー領域、下 20px をステータス
       バーとして確保。PC-98 描画用クアッドを NDC で `±(FB_HEIGHT/WIN_HEIGHT)`
       にオフセット。プレースホルダ表示で動作確認済み。
-- [ ] **Step 2 — ステータスバー**: FPS / CPU クロック / FDD アクセスランプを
-      実データで表示。FPS は `sapp.frameDuration()` から算出済み。残りは NP2kai
-      の状態取得 C ブリッジを追加する。
+- [x] **Step 2 — ステータスバー (2026-05-23)**: FPS / CPU クロック / FDD アクセス
+      ランプを実データで表示。`src/sysmng.h` の `sysmng_fddaccess/hddaccess`
+      マクロを `usa_fddaccess/usa_hddaccess` 関数にフックし、ドライブごとに
+      フレーム単位のディケイカウンタを保持。`pccore.realclock` から MHz を算出。
 - [ ] **Step 3 — メニューバー**: クリック検出 + ドロップダウン (File / System /
       Help) を sdtx ベースで実装。
 - [ ] **Step 4 — NFD 統合**: nativefiledialog-extended を build.zig に組み込み、

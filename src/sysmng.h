@@ -42,8 +42,10 @@ void sysmng_update(UINT update);
 void sysmng_cpureset(void);
 void sysmng_updatecaption(UINT8 flag);
 
-#define sysmng_fddaccess(a)
-#define sysmng_hddaccess(a)
+void usa_fddaccess(UINT drv);
+void usa_hddaccess(UINT drv);
+#define sysmng_fddaccess(a) usa_fddaccess((UINT)(a))
+#define sysmng_hddaccess(a) usa_hddaccess((UINT)(a))
 
 #ifdef __cplusplus
 }

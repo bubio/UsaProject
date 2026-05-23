@@ -33,4 +33,10 @@ pub extern fn np2_insert_fdd(drv: c_uint, path: [*:0]const u8) void;
 pub extern fn np2_insert_hdd(drv: c_uint, path: [*:0]const u8) void;
 pub extern fn debug_print_offsets() void;
 
+// UI helpers (defined in src/np2_glue.c)
+pub extern fn usa_fdd_lamp(drv: c_uint) c_int;
+pub extern fn usa_hdd_lamp(drv: c_uint) c_int;
+pub extern fn usa_lamp_tick() void;
+pub extern fn usa_cpu_clock_mhz() f64;
+
 pub extern var pc98_framebuffer: [640 * 480]u16;

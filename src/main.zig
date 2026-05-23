@@ -241,12 +241,18 @@ export fn frame() void {
     sg.updateImage(state.image, img_data);
 
     // Update UI overlay state.
+    cz.usa_lamp_tick();
     const dt = sapp.frameDuration();
     const fps: f32 = if (dt > 0.0) @floatCast(1.0 / dt) else 0.0;
     ui.draw(WIN_WIDTH, WIN_HEIGHT, .{
         .fps = fps,
-        .cpu_mhz = 0.0,
-        .fdd_access = .{ false, false, false, false },
+        .cpu_mhz = @floatCast(cz.usa_cpu_clock_mhz()),
+        .fdd_access = .{
+            cz.usa_fdd_lamp(0) != 0,
+            cz.usa_fdd_lamp(1) != 0,
+            cz.usa_fdd_lamp(2) != 0,
+            cz.usa_fdd_lamp(3) != 0,
+        },
     });
 
     sg.beginPass(.{ .action = state.pass_action, .swapchain = sglue.swapchain() });

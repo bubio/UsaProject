@@ -143,6 +143,39 @@ void sysmng_update(UINT update) { (void)update; }
 void sysmng_cpureset(void) {}
 void sysmng_updatecaption(UINT8 flag) { (void)flag; }
 
+// Drive access lamp: NP2kai's diskaccess paths call sysmng_fddaccess(drv)
+// (which our src/sysmng.h routes here). We hold a small per-drive countdown
+// that Zig decrements once per frame, so the lamp visibly blinks instead of
+// flickering off between bursts of access.
+#define USA_DRIVE_COUNT 4
+#define USA_DRIVE_DECAY_FRAMES 6
+static int g_fdd_access_decay[USA_DRIVE_COUNT] = {0};
+static int g_hdd_access_decay[USA_DRIVE_COUNT] = {0};
+
+void usa_fddaccess(UINT drv) {
+    if (drv < USA_DRIVE_COUNT) g_fdd_access_decay[drv] = USA_DRIVE_DECAY_FRAMES;
+}
+void usa_hddaccess(UINT drv) {
+    if (drv < USA_DRIVE_COUNT) g_hdd_access_decay[drv] = USA_DRIVE_DECAY_FRAMES;
+}
+
+int usa_fdd_lamp(unsigned int drv) {
+    return (drv < USA_DRIVE_COUNT) && (g_fdd_access_decay[drv] > 0);
+}
+int usa_hdd_lamp(unsigned int drv) {
+    return (drv < USA_DRIVE_COUNT) && (g_hdd_access_decay[drv] > 0);
+}
+void usa_lamp_tick(void) {
+    for (int i = 0; i < USA_DRIVE_COUNT; i++) {
+        if (g_fdd_access_decay[i] > 0) g_fdd_access_decay[i]--;
+        if (g_hdd_access_decay[i] > 0) g_hdd_access_decay[i]--;
+    }
+}
+
+double usa_cpu_clock_mhz(void) {
+    return (double)pccore.realclock / 1000000.0;
+}
+
 // Task management stubs
 void taskmng_exit(void) {}
 void taskmng_rolerelease(void) {}
