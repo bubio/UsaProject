@@ -4,6 +4,7 @@ const sdtx = sokol.debugtext;
 const sgl = sokol.gl;
 const sapp = sokol.app;
 const cz = @import("c.zig");
+const nfd = @import("nfd.zig");
 
 pub const MENU_HEIGHT: u32 = 20;
 pub const STATUS_HEIGHT: u32 = 20;
@@ -27,7 +28,11 @@ const Menu = struct {
 const menus = [_]Menu{
     .{
         .label = "File",
-        .items = &.{ "Open FDD1...", "Open FDD2...", "Eject FDD1", "Eject FDD2", "Quit" },
+        .items = &.{
+            "Open FDD1...", "Open FDD2...", "Eject FDD1", "Eject FDD2",
+            "Open HDD1...", "Open HDD2...", "Eject HDD1", "Eject HDD2",
+            "Quit",
+        },
     },
     .{
         .label = "System",
@@ -37,6 +42,10 @@ const menus = [_]Menu{
         .label = "Help",
         .items = &.{"About"},
     },
+};
+
+const disk_filters = [_]nfd.Filter{
+    .{ .name = "All Disk Images", .spec = "fdi,d88,hdm,hdi,fdd,xdf,2hd,2dd,nfd,thd,nhd,vhd,hdd" },
 };
 
 const DROPDOWN_ITEM_H: u32 = 14;
@@ -165,10 +174,15 @@ pub fn handleEscape() bool {
 fn dispatch(menu_idx: usize, item_idx: usize) void {
     switch (menu_idx) {
         0 => switch (item_idx) { // File
-            0, 1 => std.debug.print(">>> Open FDD{d} (NFD integration pending — Step 4)\n", .{item_idx + 1}),
+            0 => openFdd(0),
+            1 => openFdd(1),
             2 => ejectFdd(0),
             3 => ejectFdd(1),
-            4 => sapp.requestQuit(),
+            4 => openHdd(0),
+            5 => openHdd(1),
+            6 => ejectHdd(0),
+            7 => ejectHdd(1),
+            8 => sapp.requestQuit(),
             else => {},
         },
         1 => switch (item_idx) { // System
@@ -187,9 +201,38 @@ fn dispatch(menu_idx: usize, item_idx: usize) void {
     }
 }
 
+fn openFdd(drv: u32) void {
+    if (pickDisk()) |path| {
+        defer std.heap.page_allocator.free(path);
+        std.debug.print(">>> FDD{d}: {s}\n", .{ drv, path });
+        cz.np2_insert_fdd(drv, path.ptr);
+    }
+}
+
+fn openHdd(drv: u32) void {
+    if (pickDisk()) |path| {
+        defer std.heap.page_allocator.free(path);
+        std.debug.print(">>> HDD{d}: {s}\n", .{ drv, path });
+        cz.np2_insert_hdd(drv, path.ptr);
+    }
+}
+
+fn pickDisk() ?[:0]u8 {
+    const result = nfd.openDialog(std.heap.page_allocator, &disk_filters) catch |err| {
+        std.debug.print("!! NFD error: {s}\n", .{@errorName(err)});
+        return null;
+    };
+    return result;
+}
+
 fn ejectFdd(drv: u32) void {
     cz.np2_eject_fdd(drv);
     std.debug.print(">>> Ejected FDD{d}\n", .{drv + 1});
+}
+
+fn ejectHdd(drv: u32) void {
+    cz.np2_eject_hdd(drv);
+    std.debug.print(">>> Ejected HDD{d}\n", .{drv + 1});
 }
 
 pub fn draw(win_w: u32, win_h: u32, st: State) void {

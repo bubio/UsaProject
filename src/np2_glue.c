@@ -391,3 +391,7 @@ void np2_eject_fdd(unsigned drv) {
 void np2_insert_hdd(unsigned drv, const char *path) {
     sxsi_devopen((REG8)drv, path);
 }
+
+void np2_eject_hdd(unsigned drv) {
+    sxsi_devclose((REG8)drv);
+}

@@ -14,6 +14,7 @@ const scheduler = @import("frame_scheduler.zig");
 const input = @import("input.zig");
 const audio = @import("audio.zig");
 const ui = @import("ui.zig");
+const nfd = @import("nfd.zig");
 const sdtx = sokol.debugtext;
 const sgl = sokol.gl;
 
@@ -269,6 +270,7 @@ export fn frame() void {
 
 export fn cleanup() void {
     cz.pccore_term();
+    nfd.deinit();
     ui.shutdown();
     saudio.shutdown();
     sg.shutdown();

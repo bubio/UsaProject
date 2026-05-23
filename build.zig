@@ -21,6 +21,39 @@ pub fn build(b: *std.Build) void {
 
     exe.root_module.addImport("sokol", dep_sokol.module("sokol"));
 
+    // NFD-extended (native file dialogs). We pull the C/Obj-C sources via
+    // build.zig.zon and compile only the backend matching the target OS.
+    const dep_nfd = b.dependency("nfd_extended", .{});
+    exe.root_module.addIncludePath(dep_nfd.path("src/include"));
+    const nfd_cflags = &[_][]const u8{ "-fno-sanitize=all" };
+    switch (target.result.os.tag) {
+        .macos => {
+            exe.root_module.addCSourceFile(.{
+                .file = dep_nfd.path("src/nfd_cocoa.m"),
+                .flags = nfd_cflags,
+            });
+            exe.root_module.linkFramework("AppKit", .{});
+            exe.root_module.linkFramework("UniformTypeIdentifiers", .{});
+        },
+        .windows => {
+            exe.root_module.addCSourceFile(.{
+                .file = dep_nfd.path("src/nfd_win.cpp"),
+                .flags = nfd_cflags,
+            });
+            exe.root_module.linkSystemLibrary("ole32", .{});
+            exe.root_module.linkSystemLibrary("uuid", .{});
+            exe.root_module.linkSystemLibrary("shell32", .{});
+        },
+        .linux => {
+            exe.root_module.addCSourceFile(.{
+                .file = dep_nfd.path("src/nfd_portal.cpp"),
+                .flags = nfd_cflags,
+            });
+            exe.root_module.linkSystemLibrary("dbus-1", .{});
+        },
+        else => {},
+    }
+
     // NP2kai Core Integration
     const np2_includes = &[_][]const u8{
         "src",

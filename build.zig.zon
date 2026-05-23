@@ -36,6 +36,10 @@
             .url = "git+https://github.com/floooh/sokol-zig?ref=master#af19e50f48529a19ad3a2f594feb85646ed5da3c",
             .hash = "sokol-0.1.0-pb1HK3BiNwASzoMACS5oMYksjai_zp6YxRCzt46g4Z03",
         },
+        .nfd_extended = .{
+            .url = "git+https://github.com/btzy/nativefiledialog-extended#c9cc7baf287f969686561674a555af5be7ac82b1",
+            .hash = "N-V-__8AAKkPCwAjJKxq_ALyZqptz0YE1UmwjlUlTGABdCPR",
+        },
     },
     .paths = .{
         "build.zig",

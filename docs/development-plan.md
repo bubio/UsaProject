@@ -67,9 +67,12 @@ NP2kaiのコアを利用しつつ、アプリケーション層をZigおよびso
       で開閉、項目選択で Reset / Eject / Quit / About を dispatch。Open FDD は
       Step 4 で NFD 統合。ステータスバーは Model + CPU MHz + FDD ランプ (graphical)
       + 右寄せ FPS のレイアウトに整理。
-- [ ] **Step 4 — NFD 統合**: nativefiledialog-extended を build.zig に組み込み、
-      メニュー項目から OS ネイティブダイアログを呼び出して `np2_insert_fdd` /
-      `np2_insert_hdd` に渡す。
+- [x] **Step 4 — NFD 統合 (2026-05-23)**: `btzy/nativefiledialog-extended` を
+      `build.zig.zon` 経由で取得し、ターゲット別に `nfd_cocoa.m` /
+      `nfd_portal.cpp` / `nfd_win.cpp` をビルド。`src/nfd.zig` で薄いラッパー
+      (`openDialog`) を実装し、File メニューの Open FDD1/2/HDD1/2 から呼び出して
+      返ってきたパスを `np2_insert_fdd` / `np2_insert_hdd` に渡す。HDD 操作
+      (Open/Eject HDD1/2) も追加。
 
 ## 4. Verification
 各フェーズの完了時に、コンパイルが通ること、および想定するサブシステムが機能しているかを手動およびテストコードで検証する。
@@ -85,8 +88,8 @@ NP2kaiのコアを利用しつつ、アプリケーション層をZigおよびso
 ## 5. Exit Criteria
 コマンドラインからディスクイメージを指定して起動し、sokolのウィンドウ内でゲームの映像が描画され、キー操作および音声出力が正常に行えること。
 
-**現状**: Phase 1〜6 完了。Exit Criteria (映像/入力/音声) を満たす。
-残るは Phase 7 (ネイティブダイアログ)。
+**現状**: Phase 1〜7 完了。Exit Criteria (映像/入力/音声) を満たし、メニュー /
+ステータスバー / ネイティブダイアログを備える。
 
 ## 6. 動作確認済みディスクイメージ
 
