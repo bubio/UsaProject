@@ -15,6 +15,7 @@ const input = @import("input.zig");
 const audio = @import("audio.zig");
 const ui = @import("ui.zig");
 const sdtx = sokol.debugtext;
+const sgl = sokol.gl;
 
 const blit_vs_glsl = @embedFile("shaders/blit.vs.glsl");
 const blit_fs_glsl = @embedFile("shaders/blit.fs.glsl");
@@ -253,12 +254,14 @@ export fn frame() void {
             cz.usa_fdd_lamp(2) != 0,
             cz.usa_fdd_lamp(3) != 0,
         },
+        .model = std.mem.sliceTo(&c.np2cfg.model, 0),
     });
 
     sg.beginPass(.{ .action = state.pass_action, .swapchain = sglue.swapchain() });
     sg.applyPipeline(state.pipeline);
     sg.applyBindings(state.bindings);
     sg.draw(0, 6, 1);
+    sgl.draw();
     sdtx.draw();
     sg.endPass();
     sg.commit();

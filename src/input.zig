@@ -1,6 +1,7 @@
 const std = @import("std");
 const sapp = @import("sokol").app;
 const cz = @import("c.zig");
+const ui = @import("ui.zig");
 
 /// Convert a sokol app keycode to a PC-98 NKEY code.
 /// Returns null if the key has no direct mapping or is unmapped.
@@ -107,13 +108,30 @@ pub fn mapKeycode(code: sapp.Keycode) ?u8 {
 
 pub fn handleEvent(ev: [*c]const sapp.Event) callconv(.c) void {
     const event = ev.*;
-    
+
+    // Mouse → menu UI. Consume if the menu uses it.
+    switch (event.type) {
+        .MOUSE_MOVE => {
+            _ = ui.handleMouseMove(@intFromFloat(event.mouse_x), @intFromFloat(event.mouse_y));
+            return;
+        },
+        .MOUSE_DOWN => {
+            if (event.mouse_button == .LEFT) {
+                if (ui.handleMouseDown(@intFromFloat(event.mouse_x), @intFromFloat(event.mouse_y))) return;
+            }
+        },
+        else => {},
+    }
+
     // Handle host shortcuts first
     if (event.type == .KEY_DOWN) {
+        // ESC closes an open menu before falling through to PC-98.
+        if (event.key_code == .ESCAPE and ui.handleEscape()) return;
+
         const is_super = (event.modifiers & sapp.modifier_super) != 0;
         const is_ctrl = (event.modifiers & sapp.modifier_ctrl) != 0;
         const cmd_or_ctrl = is_super or is_ctrl;
-        
+
         if (cmd_or_ctrl) {
             switch (event.key_code) {
                 .R => {

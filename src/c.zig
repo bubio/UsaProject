@@ -30,6 +30,7 @@ pub extern fn pccore_init_config() void;
 pub extern fn np2_set_datadir(dir: [*:0]const u8) void;
 pub extern fn np2_set_model(name: [*:0]const u8) void;
 pub extern fn np2_insert_fdd(drv: c_uint, path: [*:0]const u8) void;
+pub extern fn np2_eject_fdd(drv: c_uint) void;
 pub extern fn np2_insert_hdd(drv: c_uint, path: [*:0]const u8) void;
 pub extern fn debug_print_offsets() void;
 

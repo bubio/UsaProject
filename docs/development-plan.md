@@ -62,8 +62,11 @@ NP2kaiのコアを利用しつつ、アプリケーション層をZigおよびso
       ランプを実データで表示。`src/sysmng.h` の `sysmng_fddaccess/hddaccess`
       マクロを `usa_fddaccess/usa_hddaccess` 関数にフックし、ドライブごとに
       フレーム単位のディケイカウンタを保持。`pccore.realclock` から MHz を算出。
-- [ ] **Step 3 — メニューバー**: クリック検出 + ドロップダウン (File / System /
-      Help) を sdtx ベースで実装。
+- [x] **Step 3 — メニューバー (2026-05-23)**: sokol_gl で矩形描画を追加し、File /
+      System / Help のドロップダウンを実装。マウスクリック/ホバー/外側クリック/Esc
+      で開閉、項目選択で Reset / Eject / Quit / About を dispatch。Open FDD は
+      Step 4 で NFD 統合。ステータスバーは Model + CPU MHz + FDD ランプ (graphical)
+      + 右寄せ FPS のレイアウトに整理。
 - [ ] **Step 4 — NFD 統合**: nativefiledialog-extended を build.zig に組み込み、
       メニュー項目から OS ネイティブダイアログを呼び出して `np2_insert_fdd` /
       `np2_insert_hdd` に渡す。

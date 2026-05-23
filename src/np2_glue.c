@@ -384,6 +384,10 @@ void np2_insert_fdd(unsigned drv, const char *path) {
     diskdrv_readyfdd((REG8)drv, path, 0);
 }
 
+void np2_eject_fdd(unsigned drv) {
+    fdd_eject((REG8)drv);
+}
+
 void np2_insert_hdd(unsigned drv, const char *path) {
     sxsi_devopen((REG8)drv, path);
 }
