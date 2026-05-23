@@ -20,6 +20,9 @@ pub const scrndraw_redraw = c.scrndraw_redraw;
 // Glue layer (defined in src/np2_glue.c and src/np2_path.c)
 pub extern fn pccore_init_config() void;
 pub extern fn np2_set_datadir(dir: [*:0]const u8) void;
+pub extern fn np2_set_model(name: [*:0]const u8) void;
+pub extern fn np2_insert_fdd(drv: c_uint, path: [*:0]const u8) void;
+pub extern fn np2_insert_hdd(drv: c_uint, path: [*:0]const u8) void;
 pub extern fn debug_print_offsets() void;
 
 pub extern var pc98_framebuffer: [640 * 480]u16;

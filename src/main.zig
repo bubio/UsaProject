@@ -8,6 +8,7 @@ const cz = @import("c.zig");
 const c = cz.c;
 const pixel = @import("pixel.zig");
 const datadir = @import("datadir.zig");
+const cli = @import("cli.zig");
 
 const FB_WIDTH = 640;
 const FB_HEIGHT = 400;
@@ -23,6 +24,7 @@ const State = struct {
 
 var state: State = .{};
 var fb_rgba: [FB_WIDTH * FB_HEIGHT]u32 = undefined;
+var parsed_opts: ?cli.Options = null;
 
 export fn init() void {
     sg.setup(.{
@@ -33,8 +35,12 @@ export fn init() void {
     setupDataDir();
 
     cz.pccore_init_config();
+    if (parsed_opts) |opts| {
+        if (opts.model) |m| cz.np2_set_model(m.ptr);
+    }
     cz.pccore_init();
     cz.pccore_reset();
+    if (parsed_opts) |opts| insertDisks(opts);
 
     state.image = sg.makeImage(.{
         .width = FB_WIDTH,
@@ -87,6 +93,23 @@ export fn init() void {
     state.pass_action.colors[0] = .{
         .load_action = .CLEAR,
         .clear_value = .{ .r = 0.0, .g = 0.0, .b = 0.0, .a = 1.0 },
+    };
+}
+
+fn insertDisks(opts: cli.Options) void {
+    var fdd_drv: c_uint = 0;
+    var hdd_drv: c_uint = 0;
+    for (opts.disks) |d| switch (d.kind) {
+        .fdd => {
+            std.debug.print(">>> FDD{d}: {s}\n", .{ fdd_drv, d.path });
+            cz.np2_insert_fdd(fdd_drv, d.path.ptr);
+            fdd_drv += 1;
+        },
+        .hdd => {
+            std.debug.print(">>> HDD{d}: {s}\n", .{ hdd_drv, d.path });
+            cz.np2_insert_hdd(hdd_drv, d.path.ptr);
+            hdd_drv += 1;
+        },
     };
 }
 
@@ -213,7 +236,31 @@ export fn cleanup() void {
     sg.shutdown();
 }
 
-pub fn main() void {
+pub fn main(proc: std.process.Init.Minimal) void {
+    const allocator = std.heap.page_allocator;
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const argv = proc.args.toSlice(arena.allocator()) catch {
+        std.debug.print("!! could not read argv\n", .{});
+        return;
+    };
+    // Skip argv[0] (program name).
+    const args_slice: []const [:0]const u8 = if (argv.len > 0) argv[1..] else argv[0..0];
+    const args_const: []const []const u8 = @ptrCast(args_slice);
+
+    var opts = cli.parse(allocator, args_const) catch |err| {
+        std.debug.print("!! CLI parse error: {s}\n\n{s}", .{ @errorName(err), cli.usage_text });
+        return;
+    };
+    if (opts.help) {
+        std.debug.print("{s}", .{cli.usage_text});
+        opts.deinit(allocator);
+        return;
+    }
+    parsed_opts = opts;
+    defer if (parsed_opts) |*p| p.deinit(allocator);
+
     sapp.run(.{
         .init_cb = init,
         .frame_cb = frame,

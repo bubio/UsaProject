@@ -16,6 +16,8 @@
 #include <stdarg.h>
 #include <pccore.h>
 #include <vram/scrndraw.h>
+#include <fdd/diskdrv.h>
+#include <fdd/sxsi.h>
 #include <errno.h>
 
 // Global structures expected by NP2kai
@@ -100,8 +102,28 @@ void sysmng_updatecaption(UINT8 flag) { (void)flag; }
 void taskmng_exit(void) {}
 void taskmng_rolerelease(void) {}
 
-// Communication management stubs
-COMMNG commng_create(UINT device, BOOL onReset) { (void)device; (void)onReset; return NULL; }
+// Communication management stubs — return a singleton no-op COMMNG so guest
+// code that dereferences cm_rs232c->msg etc. doesn't crash.
+static UINT  null_com_read(COMMNG self, UINT8 *data) { (void)self; (void)data; return 0; }
+static UINT  null_com_write(COMMNG self, UINT8 data) { (void)self; (void)data; return 1; }
+static UINT  null_com_writeretry(COMMNG self) { (void)self; return 1; }
+static void  null_com_beginblock(COMMNG self) { (void)self; }
+static void  null_com_endblock(COMMNG self) { (void)self; }
+static UINT  null_com_lastwritesuccess(COMMNG self) { (void)self; return 1; }
+static UINT8 null_com_getstat(COMMNG self) { (void)self; return 0; }
+static INTPTR null_com_msg(COMMNG self, UINT msg, INTPTR param) { (void)self; (void)msg; (void)param; return 0; }
+static void  null_com_release(COMMNG self) { (void)self; }
+
+static _COMMNG null_commng = {
+    COMCONNECT_OFF,
+    null_com_read, null_com_write, null_com_writeretry,
+    null_com_beginblock, null_com_endblock,
+    null_com_lastwritesuccess, null_com_getstat,
+    null_com_msg, null_com_release,
+    0, 0, 0,
+};
+
+COMMNG commng_create(UINT device, BOOL onReset) { (void)device; (void)onReset; return &null_commng; }
 void commng_destroy(COMMNG hdl) { (void)hdl; }
 void commng_initialize(void) {}
 
@@ -252,4 +274,24 @@ void pccore_init_config(void) {
     np2cfg.vol_rhythm = 64;
     np2cfg.vol_midi = 64;
     strcpy(np2cfg.model, "VX");
+    np2cfg.fddequip = 0x0f; // enable all 4 FDD slots
+}
+
+void np2_set_model(const char *name) {
+    if (!name || !name[0]) return;
+    // np2cfg.model is OEMCHAR[8]; truncate-safe copy with NUL.
+    size_t n = strlen(name);
+    if (n >= sizeof(np2cfg.model)) n = sizeof(np2cfg.model) - 1;
+    memcpy(np2cfg.model, name, n);
+    np2cfg.model[n] = '\0';
+}
+
+void np2_insert_fdd(unsigned drv, const char *path) {
+    // readyfdd inserts immediately (setfdd would wait 20 frames via the
+    // diskdrv delay queue, which the BIOS sometimes gives up on).
+    diskdrv_readyfdd((REG8)drv, path, 0);
+}
+
+void np2_insert_hdd(unsigned drv, const char *path) {
+    sxsi_devopen((REG8)drv, path);
 }
