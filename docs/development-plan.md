@@ -15,31 +15,42 @@ NP2kaiのコアを利用しつつ、アプリケーション層をZigおよびso
 
 ## 3. Implementation Phases
 
-### Phase 1: Project Setup & sokol Initialization
-- [ ] Zigプロジェクトの再初期化 (`zig init`)。
-- [ ] `build.zig.zon` に `sokol-zig` への依存関係を追加し、環境を構築。
-- [ ] 空のウィンドウを表示するだけの基本的なsokolアプリケーションをZigで実装する。
+### Phase 1: Project Setup & sokol Initialization ✅ (2026-05-22)
+- [x] Zigプロジェクトの再初期化 (`zig init`)。
+- [x] `build.zig.zon` に `sokol-zig` への依存関係を追加し、環境を構築。
+- [x] 空のウィンドウを表示するだけの基本的なsokolアプリケーションをZigで実装する。
 
-### Phase 2: Core Build Integration (`build.zig`)
-- [ ] NP2kaiコアのうち、エミュレーションに必要最小限のC/C++ソースファイルを特定。
-- [ ] `build.zig` にC/C++コンパイルステップを追加し、コアをコンパイル・リンク可能にする。
-- [ ] Zigからコアの初期化関数を呼び出せるよう、C APIインターフェースを定義。
+### Phase 2: Core Build Integration (`build.zig`) ✅ (2026-05-22)
+- [x] NP2kaiコアのうち、エミュレーションに必要最小限のC/C++ソースファイルを特定。
+- [x] `build.zig` にC/C++コンパイルステップを追加し、コアをコンパイル・リンク可能にする。
+- [x] Zigからコアの初期化関数を呼び出せるよう、C APIインターフェースを定義。
 
-### Phase 3: CLI Boot & Main Emulator Loop
-- [ ] CLI引数でFDI/HDIなどのディスクイメージパスを受け取る処理を実装。
-- [ ] sokolのフレームコールバック (`frame`) 内で、エミュレータの1フレーム分の処理（CPU、デバイスのステップ実行）を呼び出す仕組みを実装。
+### Phase 3: CLI Boot & Main Emulator Loop ✅ (2026-05-23)
+- [x] CLI引数でFDI/HDIなどのディスクイメージパスを受け取る処理を実装。
+  - `src/cli.zig` (pure-Zig パーサ + 16 tests)。拡張子で FDD/HDD 自動振り分け、
+    `--model VM|VX|286|EPSON` でモデル切替、`-h`/`--help` でヘルプ。
+- [x] sokolのフレームコールバック (`frame`) 内で、エミュレータの1フレーム分の
+      処理を呼び出す仕組みを実装。
+  - `src/frame_scheduler.zig` で壁時計ベースのキャッチアップループを実装
+    (PC-98 1/59.94Hz, max 4 frame catch-up, 6 tests)。
+- [x] **動作確認**: `Wizardry2.FDI` で実機ブートまで到達 (BIOS 起動 → ディスク
+      ブート → ゲームタイトル画面表示)。
 
-### Phase 4: Video Output (sokol_gfx)
-- [ ] NP2kaiのフレームバッファ（VRAM）から描画結果を取得。
-- [ ] sokol_gfxの動的テクスチャ (`sg_update_image`) を用い、画面にレンダリングするパイプラインを構築。
+### Phase 4: Video Output (sokol_gfx) ✅ (2026-05-22)
+- [x] NP2kaiのフレームバッファ（VRAM）から描画結果を取得。
+- [x] sokol_gfxの動的テクスチャ (`sg_update_image`) を用い、画面にレンダリング
+      するパイプラインを構築。
+- [ ] 480 ライン (31kHz) モード対応 — 解像度切替と sokol_app のウィンドウ
+      リサイズ対応含む。Phase 5/6 と合わせて検討。
 
-### Phase 5: Input Handling & Shortcuts
+### Phase 5: Input Handling & Shortcuts (← 次に着手)
 - [ ] sokol_app のキーボードイベントをPC-98のキーコードに変換してコアに送信。
 - [ ] リセットやディスクイジェクトなどの基本操作をショートカットキーに割り当てる。
 
 ### Phase 6: Audio Output (sokol_audio)
 - [ ] `sokol_audio` を初期化し、ストリームコールバックを設定。
 - [ ] NP2kaiから生成されたPCMデータを取得し、sokol_audioのバッファに供給する。
+  (現状 `soundmng_*` は全て no-op スタブ。)
 
 ### Phase 7: Native Dialogs & Integration
 - [ ] 実行中のディスク入れ替え等のため、OSネイティブなファイルダイアログ（NFD等）を呼び出せるようにする。
@@ -47,5 +58,28 @@ NP2kaiのコアを利用しつつ、アプリケーション層をZigおよびso
 ## 4. Verification
 各フェーズの完了時に、コンパイルが通ること、および想定するサブシステムが機能しているかを手動およびテストコードで検証する。
 
+現時点で `zig build test` は **48/48 pass**:
+- `src/pixel.zig` (7) — RGB565→RGBA8 変換
+- `src/datadir.zig` (4) — OS-conventional パス解決
+- `src/cli.zig` (16) — CLI パーサ
+- `src/frame_scheduler.zig` (6) — 時刻ベーススケジューラ
+- `src/path_test.zig` (13) — NP2kai パス互換層 (C 経由)
+- `src/root.zig` 由来テンプレ (2)
+
 ## 5. Exit Criteria
 コマンドラインからディスクイメージを指定して起動し、sokolのウィンドウ内でゲームの映像が描画され、キー操作および音声出力が正常に行えること。
+
+**現状**: 映像までは Exit Criteria を満たす (Phase 1〜4 + 5 の半分=入力以外)。
+残るは入力 (Phase 5) と音声 (Phase 6)。
+
+## 6. 動作確認済みディスクイメージ
+
+| イメージ | 形式 | 結果 |
+|---|---|---|
+| Wizardry2.FDI | 標準 NP2 FDI (2HD) | ✅ タイトル画面まで起動 |
+| YS.FDI | Anex86 "FDI2" v2 | ❌ NP2kai が形式非対応 |
+
+新しいイメージを試すときは `xxd image | head -1` で先頭を確認:
+- 先頭 4 バイトが `46 44 49 32` ("FDI2") は Anex86 v2 で使えない
+- 先頭が `00 00 00 00 90 00 00 00` のような標準 FDI なら高確率で動く
+- `.d88` は鉄板
