@@ -1,0 +1,50 @@
+name: Windows Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  release:
+    types:
+      - published
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-2025
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          zig-version: master
+
+      - name: Build
+        run: zig build -Doptimize=ReleaseFast
+
+      - name: Package
+        run: |
+          mkdir package
+          copy zig-out\bin\UsaProject.exe package\
+          powershell Compress-Archive -Path package\* -DestinationPath UsaProject-windows.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: UsaProject-windows
+          path: UsaProject-windows.zip
+          if-no-files-found: error
+
+      - name: Upload release asset
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v3
+        with:
+          files: UsaProject-windows.zip

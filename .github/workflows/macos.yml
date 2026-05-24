@@ -1,0 +1,55 @@
+name: macOS Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  release:
+    types:
+      - published
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    runs-on: macos-26
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Select latest stable Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.4.1"
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          zig-version: master
+
+      - name: Build
+        run: zig build bundle -Doptimize=ReleaseFast
+
+      - name: Package app
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            zig-out/UsaProject.app \
+            zig-out/UsaProject-macos.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: UsaProject-macos
+          path: zig-out/UsaProject-macos.zip
+          if-no-files-found: error
+
+      - name: Upload release asset
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v3
+        with:
+          files: zig-out/UsaProject-macos.zip

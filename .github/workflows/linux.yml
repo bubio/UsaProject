@@ -1,0 +1,61 @@
+name: Linux Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  release:
+    types:
+      - published
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev \
+            libdbus-1-dev \
+            libx11-dev \
+            libxi-dev \
+            libxcursor-dev \
+            libgl-dev
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          zig-version: master
+
+      - name: Build
+        run: zig build -Doptimize=ReleaseFast
+
+      - name: Package
+        run: |
+          mkdir package
+          cp zig-out/bin/UsaProject package/
+          zip -r UsaProject-linux.zip package/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: UsaProject-linux
+          path: UsaProject-linux.zip
+          if-no-files-found: error
+
+      - name: Upload release asset
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v3
+        with:
+          files: UsaProject-linux.zip
