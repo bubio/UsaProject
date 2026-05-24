@@ -22,32 +22,40 @@ on:
       - published
   workflow_dispatch:
 
+env:
+  ZIG_VERSION: 0.16.0
+
 jobs:
   build-windows:
-    runs-on: windows-2025
+    runs-on: windows-latest
     permissions:
       contents: write
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup Zig
-        uses: mlugg/setup-zig@v1
-        with:
-          version: 0.16.0
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://ziglang.org/download/$env:ZIG_VERSION/zig-windows-x86_64-$env:ZIG_VERSION.zip" -OutFile zig.zip
+          Expand-Archive zig.zip -DestinationPath .
+          echo "$PWD\zig-windows-x86_64-$env:ZIG_VERSION" | Out-File -Append $env:GITHUB_PATH
 
       - name: Build
         run: zig build -Doptimize=ReleaseFast
 
       - name: Package
+        shell: pwsh
         run: |
           mkdir package
           copy zig-out\bin\UsaProject.exe package\
-          powershell Compress-Archive -Path package\* -DestinationPath UsaProject-windows.zip
+          Compress-Archive -Path package\* -DestinationPath UsaProject-windows.zip
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: UsaProject-windows
           path: UsaProject-windows.zip
@@ -55,6 +63,6 @@ jobs:
 
       - name: Upload release asset
         if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@v2
         with:
           files: UsaProject-windows.zip
