@@ -41,6 +41,8 @@ pub extern fn usa_hdd_lamp(drv: c_uint) c_int;
 pub extern fn usa_lamp_tick() void;
 pub extern fn usa_cpu_clock_mhz() f64;
 
+pub extern fn usa_reset_with_help() void;
+
 pub extern var pc98_framebuffer: [640 * 480]u16;
 
 // Mouse (defined in src/np2_glue.c)

@@ -108,6 +108,18 @@ pub fn mapKeycode(code: sapp.Keycode) ?u8 {
 
 var mouse_captured: bool = false;
 
+// Track which PC-98 keys are currently held on the host side,
+// so we can re-send them after a reset (which clears keystat).
+var keys_held: [128]bool = [_]bool{false} ** 128;
+
+fn resendHeldKeys() void {
+    for (0..128) |i| {
+        if (keys_held[i]) {
+            cz.keystat_keydown(@intCast(i));
+        }
+    }
+}
+
 fn captureMouse() void {
     if (!mouse_captured) {
         mouse_captured = true;
@@ -188,6 +200,7 @@ pub fn handleEvent(ev: [*c]const sapp.Event) callconv(.c) void {
             switch (event.key_code) {
                 .R => {
                     cz.pccore_reset();
+                    resendHeldKeys();
                     return;
                 },
                 .Q => {
@@ -202,10 +215,12 @@ pub fn handleEvent(ev: [*c]const sapp.Event) callconv(.c) void {
     // Pass to PC-98
     if (event.type == .KEY_DOWN) {
         if (mapKeycode(event.key_code)) |nkey| {
+            keys_held[nkey] = true;
             cz.keystat_keydown(nkey);
         }
     } else if (event.type == .KEY_UP) {
         if (mapKeycode(event.key_code)) |nkey| {
+            keys_held[nkey] = false;
             cz.keystat_keyup(nkey);
         }
     }

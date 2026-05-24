@@ -5,4 +5,5 @@ test {
     _ = @import("datadir.zig");
     _ = @import("cli.zig");
     _ = @import("frame_scheduler.zig");
+    _ = @import("ui.zig");
 }

@@ -310,7 +310,7 @@ pub fn main(proc: std.process.Init.Minimal) void {
         .height = WIN_HEIGHT,
         .window_title = "UsaProject",
         .high_dpi = false,
-        .icon = .{ .sokol_default = true },
+        .icon = .{ .sokol_default = false },
         .logger = .{ .func = sokol.log.func },
     });
 }

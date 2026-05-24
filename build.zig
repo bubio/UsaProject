@@ -81,7 +81,7 @@ pub fn build(b: *std.Build) void {
         exe.root_module.addIncludePath(b.path(include));
     }
 
-    const np2_defines = &[_][]const u8{
+    const common_defines = &[_][]const u8{
         "BIOS_IO_EMULATION",
         "OSLANG_UTF8",
         "SUPPORT_8BPP",
@@ -110,8 +110,6 @@ pub fn build(b: *std.Build) void {
         "SUPPORT_V30EXT",
         "SUPPORT_V30ORIGINAL",
         "SUPPORT_VPCVHD",
-        // "SUPPORT_VGA_MODEX", // Disabled for diagnostics
-        // "SUPPORT_WAB",
         "USE_MAME",
         "USE_MAME_BSD",
         "VAEG_FIX",
@@ -147,12 +145,22 @@ pub fn build(b: *std.Build) void {
         "SUPPORT_HOSTDRV",
         "OSLINEBREAK_LF",
         "__LIBRETRO__",
-        "MACOS",
         "NP2KAI_GIT_TAG=\"v0.86\"",
         "NP2KAI_GIT_HASH=\"zig\"",
         "DOSIOCALL=",
         "_snprintf=snprintf",
     };
+
+    const os_define: []const u8 = switch (target.result.os.tag) {
+        .macos => "MACOS",
+        .windows => "_WINDOWS",
+        .linux => "LINUX",
+        else => "UNKNOWN_OS",
+    };
+
+    const np2_defines = b.allocator.alloc([]const u8, common_defines.len + 1) catch unreachable;
+    @memcpy(np2_defines[0..common_defines.len], common_defines);
+    np2_defines[common_defines.len] = os_define;
 
     const warning_flags = &[_][]const u8{
         "-Wno-implicit-function-declaration",
@@ -199,6 +207,51 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(exe);
 
+    // macOS App Bundle Support
+    if (target.result.os.tag == .macos) {
+        const bundle_step = b.step("bundle", "Create macOS App Bundle (.app)");
+
+        const app_name = "UsaProject.app";
+        const contents_dir = b.fmt("{s}/Contents", .{app_name});
+        const macos_dir = b.fmt("{s}/MacOS", .{contents_dir});
+        const resources_dir = b.fmt("{s}/Resources", .{contents_dir});
+
+        // 1. Create directory structure
+        const mkdir = b.addSystemCommand(&.{ "mkdir", "-p" });
+        mkdir.addArgs(&.{
+            b.getInstallPath(.prefix, macos_dir),
+            b.getInstallPath(.prefix, resources_dir),
+        });
+        bundle_step.dependOn(&mkdir.step);
+
+        // 2. Copy the executable
+        const cp_exe = b.addSystemCommand(&.{ "cp" });
+        cp_exe.addArtifactArg(exe);
+        cp_exe.addArg(b.getInstallPath(.prefix, macos_dir));
+        cp_exe.step.dependOn(&mkdir.step);
+        bundle_step.dependOn(&cp_exe.step);
+
+        // 3. Copy Info.plist
+        const cp_plist = b.addSystemCommand(&.{ "cp", "assets/Info.plist" });
+        cp_plist.addArg(b.getInstallPath(.prefix, b.fmt("{s}/Info.plist", .{contents_dir})));
+        cp_plist.step.dependOn(&mkdir.step);
+        bundle_step.dependOn(&cp_plist.step);
+
+        // 4. Copy AppIcon.icns
+        const cp_icon = b.addSystemCommand(&.{ "cp", "assets/AppIcon.icns" });
+        cp_icon.addArg(b.getInstallPath(.prefix, b.fmt("{s}/AppIcon.icns", .{resources_dir})));
+        cp_icon.step.dependOn(&mkdir.step);
+        bundle_step.dependOn(&cp_icon.step);
+
+        // 5. Touch the bundle to refresh Finder cache
+        const touch = b.addSystemCommand(&.{ "touch" });
+        touch.addArg(b.getInstallPath(.prefix, app_name));
+        touch.step.dependOn(&cp_exe.step);
+        touch.step.dependOn(&cp_plist.step);
+        touch.step.dependOn(&cp_icon.step);
+        bundle_step.dependOn(&touch.step);
+    }
+
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
@@ -219,6 +272,22 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    zig_tests.root_module.addImport("sokol", dep_sokol.module("sokol"));
+    for (np2_includes) |include| {
+        zig_tests.root_module.addIncludePath(b.path(include));
+    }
+    for (np2_defines) |define| {
+        const eq_idx = std.mem.indexOfScalar(u8, define, '=');
+        if (eq_idx) |idx| {
+            zig_tests.root_module.addCMacro(define[0..idx], define[idx + 1 ..]);
+        } else {
+            zig_tests.root_module.addCMacro(define, "1");
+        }
+    }
+    // NFD
+    zig_tests.root_module.addIncludePath(dep_nfd.path("src/include"));
+
+    zig_tests.root_module.link_libc = true;
     test_step.dependOn(&b.addRunArtifact(zig_tests).step);
 
     // C-path tests (exercises np2_path.c via Zig externs).

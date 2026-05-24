@@ -319,6 +319,12 @@ void usa_mouse_btn_up(int left) {
 	}
 }
 
+// Reset with HELP key held (for BIOS system setup menu)
+void usa_reset_with_help(void) {
+	pccore_reset();
+	keystat_keydown(0x3f);
+}
+
 // Font management stubs
 void fontmng_initialize(void) {}
 void fontmng_deinitialize(void) {}
@@ -382,7 +388,7 @@ void pccore_init_config(void) {
     np2cfg.samplingrate = 44100;
     np2cfg.delayms = 150;
     np2cfg.BEEP_VOL = 3;
-    np2cfg.SOUND_SW = 0x04; // SOUNDID_PC_9801_86
+    np2cfg.SOUND_SW = 0x06; // SOUNDID_PC_9801_86_26K
     np2cfg.usefmgen = 0;
     for (int i=0; i<6; i++) np2cfg.vol14[i] = 100;
     np2cfg.vol_master = 100;
@@ -393,6 +399,7 @@ void pccore_init_config(void) {
     np2cfg.vol_rhythm = 100;
     np2cfg.vol_midi = 100;
     strcpy(np2cfg.model, "VX");
+    np2cfg.usebios = 1;
     np2cfg.fddequip = 0x0f; // enable all 4 FDD slots
 
     // Sound board defaults — without these, OPNA gets attached to the wrong
@@ -406,6 +413,10 @@ void pccore_init_config(void) {
     // and most FM-driven music engines stall or fall back to BEEP.
     np2cfg.snd86opt = 0x1d;
     np2cfg.snd26opt = 0x10;
+
+    // MSW4 bit 3 = sound board present (拡張ボード → サウンドボード → 使う)
+    // Applied after msw_default in bios_itfcall via usa_apply_memsw_overrides().
+    np2cfg.memsw[3] = 0x08;
 }
 
 void np2_set_model(const char *name) {

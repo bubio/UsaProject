@@ -6,6 +6,14 @@ const sapp = sokol.app;
 const cz = @import("c.zig");
 const nfd = @import("nfd.zig");
 
+const sg = sokol.gfx;
+
+const app_icon_raw = @embedFile("AppIcon128.raw");
+var app_icon_view: sg.View = .{};
+var app_icon_sampler: sg.Sampler = .{};
+var app_icon_valid: bool = false;
+var alpha_pipeline: sgl.Pipeline = .{};
+
 pub const MENU_HEIGHT: u32 = 20;
 pub const STATUS_HEIGHT: u32 = 20;
 
@@ -36,7 +44,7 @@ const menus = [_]Menu{
     },
     .{
         .label = "System",
-        .items = &.{ "Reset", "Pause" },
+        .items = &.{ "Reset", "System Setup", "Pause" },
     },
     .{
         .label = "Help",
@@ -66,6 +74,7 @@ var open_menu: i32 = -1;
 var hover_item: i32 = -1;
 var mouse_x: i32 = 0;
 var mouse_y: i32 = 0;
+var show_about: bool = false;
 
 pub fn setup() void {
     sgl.setup(.{
@@ -77,6 +86,44 @@ pub fn setup() void {
     };
     desc.fonts[0] = sdtx.fontKc853();
     sdtx.setup(desc);
+
+    // Alpha-blend pipeline for overlay / icon
+    alpha_pipeline = sgl.makePipeline(.{
+        .colors = init: {
+            var colors: [8]sg.ColorTargetState = @splat(.{});
+            colors[0] = .{
+                .blend = .{
+                    .enabled = true,
+                    .src_factor_rgb = .SRC_ALPHA,
+                    .dst_factor_rgb = .ONE_MINUS_SRC_ALPHA,
+                },
+            };
+            break :init colors;
+        },
+    });
+
+    // Load AppIcon128.raw (128x128 RGBA)
+    var img_desc: sg.ImageDesc = .{
+        .width = 128,
+        .height = 128,
+        .pixel_format = .RGBA8,
+    };
+    img_desc.data.mip_levels[0] = .{
+        .ptr = app_icon_raw.ptr,
+        .size = app_icon_raw.len,
+    };
+    const app_icon_image = sg.makeImage(img_desc);
+
+    app_icon_view = sg.makeView(.{
+        .texture = .{ .image = app_icon_image },
+    });
+
+    app_icon_sampler = sg.makeSampler(.{
+        .min_filter = .LINEAR,
+        .mag_filter = .LINEAR,
+    });
+
+    app_icon_valid = true;
 }
 
 pub fn shutdown() void {
@@ -129,6 +176,7 @@ fn hitDropdownItem(x: i32, y: i32) i32 {
 pub fn handleMouseMove(x: i32, y: i32) bool {
     mouse_x = x;
     mouse_y = y;
+    if (show_about) return true;
     if (open_menu < 0) return y < @as(i32, @intCast(MENU_HEIGHT));
     hover_item = hitDropdownItem(x, y);
     return true;
@@ -136,6 +184,10 @@ pub fn handleMouseMove(x: i32, y: i32) bool {
 
 /// Returns `true` if the event was consumed.
 pub fn handleMouseDown(x: i32, y: i32) bool {
+    if (show_about) {
+        show_about = false;
+        return true;
+    }
     // Click on a menu label: toggle / switch.
     for (menus, 0..) |_, i| {
         if (hitMenuLabel(i, x, y)) {
@@ -165,6 +217,10 @@ pub fn handleMouseDown(x: i32, y: i32) bool {
 
 /// Returns `true` if Escape closed an open menu.
 pub fn handleEscape() bool {
+    if (show_about) {
+        show_about = false;
+        return true;
+    }
     if (open_menu < 0) return false;
     open_menu = -1;
     hover_item = -1;
@@ -190,11 +246,15 @@ fn dispatch(menu_idx: usize, item_idx: usize) void {
                 std.debug.print(">>> System reset\n", .{});
                 cz.pccore_reset();
             },
-            1 => std.debug.print(">>> Pause (not implemented)\n", .{}),
+            1 => {
+                std.debug.print(">>> System setup (HELP+reset)\n", .{});
+                cz.usa_reset_with_help();
+            },
+            2 => std.debug.print(">>> Pause (not implemented)\n", .{}),
             else => {},
         },
         2 => switch (item_idx) { // Help
-            0 => std.debug.print(">>> UsaProject — PC-98 emulator (Zig + sokol + NP2kai)\n", .{}),
+            0 => show_about = true,
             else => {},
         },
         else => {},
@@ -236,26 +296,19 @@ fn ejectHdd(drv: u32) void {
 }
 
 pub fn draw(win_w: u32, win_h: u32, st: State) void {
-    drawBackgrounds(win_w, win_h, st);
-    drawText(win_w, win_h, st);
-}
-
-fn drawBackgrounds(win_w: u32, win_h: u32, st: State) void {
     sgl.defaults();
     sgl.matrixModeProjection();
     sgl.loadIdentity();
-    // Top-left origin, y grows downward.
     sgl.ortho(0.0, @floatFromInt(win_w), @floatFromInt(win_h), 0.0, -1.0, 1.0);
 
-    sgl.beginQuads();
-
-    // Menu bar background.
+    // 1. Menu bar background
     rectFill(0, 0, win_w, MENU_HEIGHT, 0x30, 0x30, 0x38);
-    // Status bar background.
+
+    // 2. Status bar background
     const status_y = win_h - STATUS_HEIGHT;
     rectFill(0, status_y, win_w, STATUS_HEIGHT, 0x18, 0x18, 0x20);
 
-    // FD access lamps (graphical), positioned to follow the "FDD:" label.
+    // 3. FD access lamps
     const lamp_start_x: u32 = STATUS_FDD_LAMP_X;
     const lamp_y = status_y + (STATUS_HEIGHT - STATUS_LAMP_H) / 2;
     for (0..4) |i| {
@@ -267,12 +320,11 @@ fn drawBackgrounds(win_w: u32, win_h: u32, st: State) void {
         }
     }
 
-    // Highlight the open menu label.
+    // 4. Highlight open menu
     if (open_menu >= 0) {
         const mi: usize = @intCast(open_menu);
         rectFill(menuLabelX(mi), 0, menuLabelWidth(menus[mi].label), MENU_HEIGHT, 0x50, 0x50, 0x80);
 
-        // Dropdown background + items.
         const dx = menuLabelX(mi);
         const dw = dropdownWidth(mi);
         const dh: u32 = @as(u32, @intCast(menus[mi].items.len)) * DROPDOWN_ITEM_H;
@@ -284,19 +336,92 @@ fn drawBackgrounds(win_w: u32, win_h: u32, st: State) void {
         }
     }
 
-    sgl.end();
+    // 5. About dialog
+    if (show_about) {
+        sgl.pushPipeline();
+        sgl.loadPipeline(alpha_pipeline);
+
+        // Overlay (semi-transparent)
+        rectFillAlpha(0, 0, win_w, win_h, 0, 0, 0, 0.5);
+
+        // Dialog box (OPAQUE)
+        const dw: u32 = 360;
+        const dh: u32 = 180;
+        const dx = (win_w - dw) / 2;
+        const dy = (win_h - dh) / 2;
+        rectFill(dx, dy, dw, dh, 0x20, 0x20, 0x28);
+
+        // Icon
+        if (app_icon_valid) {
+            sgl.enableTexture();
+            sgl.texture(app_icon_view, app_icon_sampler);
+            sgl.beginQuads();
+            sgl.c4b(0xFF, 0xFF, 0xFF, 255);
+            const ix = @as(f32, @floatFromInt(dx)) + 20.0;
+            const iy = @as(f32, @floatFromInt(dy)) + 40.0;
+            const iw = 64.0;
+            const ih = 64.0;
+            sgl.v2fT2f(ix, iy, 0.0, 0.0);
+            sgl.v2fT2f(ix + iw, iy, 1.0, 0.0);
+            sgl.v2fT2f(ix + iw, iy + ih, 1.0, 1.0);
+            sgl.v2fT2f(ix, iy + ih, 0.0, 1.0);
+            sgl.end();
+            sgl.disableTexture();
+        }
+
+        // Border
+        rectLine(dx, dy, dw, dh, 0x60, 0x60, 0x70);
+
+        sgl.popPipeline();
+    }
+
+    drawText(win_w, win_h, st);
 }
 
 fn rectFill(x: u32, y: u32, w: u32, h: u32, r: u8, g: u8, b: u8) void {
+    sgl.beginQuads();
+    sgl.c4b(r, g, b, 255); // Always opaque
     const fx: f32 = @floatFromInt(x);
     const fy: f32 = @floatFromInt(y);
     const fw: f32 = @floatFromInt(w);
     const fh: f32 = @floatFromInt(h);
-    sgl.c3b(r, g, b);
     sgl.v2f(fx, fy);
     sgl.v2f(fx + fw, fy);
     sgl.v2f(fx + fw, fy + fh);
     sgl.v2f(fx, fy + fh);
+    sgl.end();
+}
+
+fn rectFillAlpha(x: u32, y: u32, w: u32, h: u32, r: u8, g: u8, b: u8, a: f32) void {
+    sgl.beginQuads();
+    sgl.c4f(@as(f32, @floatFromInt(r)) / 255.0, @as(f32, @floatFromInt(g)) / 255.0, @as(f32, @floatFromInt(b)) / 255.0, a);
+    const fx: f32 = @floatFromInt(x);
+    const fy: f32 = @floatFromInt(y);
+    const fw: f32 = @floatFromInt(w);
+    const fh: f32 = @floatFromInt(h);
+    sgl.v2f(fx, fy);
+    sgl.v2f(fx + fw, fy);
+    sgl.v2f(fx + fw, fy + fh);
+    sgl.v2f(fx, fy + fh);
+    sgl.end();
+}
+
+fn rectLine(x: u32, y: u32, w: u32, h: u32, r: u8, g: u8, b: u8) void {
+    const fx: f32 = @floatFromInt(x);
+    const fy: f32 = @floatFromInt(y);
+    const fw: f32 = @floatFromInt(w);
+    const fh: f32 = @floatFromInt(h);
+    sgl.beginLines();
+    sgl.c4b(r, g, b, 255);
+    sgl.v2f(fx, fy);
+    sgl.v2f(fx + fw, fy);
+    sgl.v2f(fx + fw, fy);
+    sgl.v2f(fx + fw, fy + fh);
+    sgl.v2f(fx + fw, fy + fh);
+    sgl.v2f(fx, fy + fh);
+    sgl.v2f(fx, fy + fh);
+    sgl.v2f(fx, fy);
+    sgl.end();
 }
 
 fn drawText(win_w: u32, win_h: u32, st: State) void {
@@ -359,4 +484,74 @@ fn drawText(win_w: u32, win_h: u32, st: State) void {
     var fbuf: [16]u8 = undefined;
     const fline = std.fmt.bufPrintZ(&fbuf, "{d:>5.1} FPS", .{st.fps}) catch "? FPS";
     sdtx.puts(fline);
+
+    if (show_about) {
+        const dw: f32 = 360.0;
+        const dh: f32 = 180.0;
+        const dx_cell = (@as(f32, @floatFromInt(win_w)) - dw) / 2.0 / CHAR_W;
+        const dy_cell = (@as(f32, @floatFromInt(win_h)) - dh) / 2.0 / CHAR_H;
+
+        // --- Text Content ---
+        const tx_cell = dx_cell + 12;
+        sdtx.color3b(0xFF, 0xFF, 0xFF);
+        sdtx.pos(tx_cell, dy_cell + 4);
+        sdtx.puts("UsaProject");
+
+        sdtx.color3b(0xB0, 0xB0, 0xB0);
+        sdtx.pos(tx_cell, dy_cell + 6);
+        sdtx.puts("Version: 0.1.0");
+
+        sdtx.pos(tx_cell, dy_cell + 9);
+        sdtx.puts("Core: NP2kai");
+
+        sdtx.pos(tx_cell, dy_cell + 10);
+        sdtx.puts("Core Version: 0.86");
+    }
+}
+
+test "UI state: menu and about dialog" {
+    // Dummy implementations for linker
+    const test_dummies = struct {
+        export fn pccore_reset() void {}
+        export fn usa_reset_with_help() void {}
+        export fn np2_insert_fdd(_: u32, _: [*c]const u8) void {}
+        export fn np2_insert_hdd(_: u32, _: [*c]const u8) void {}
+        export fn np2_eject_fdd(_: u32) void {}
+        export fn np2_eject_hdd(_: u32) void {}
+        export fn NFD_Init() c_int { return 1; } // NFD_OKAY
+        export fn NFD_OpenDialogU8(_: [*c][*c]u8, _: ?*const anyopaque, _: u32, _: ?[*:0]const u8) c_int { return 2; } // NFD_CANCEL
+        export fn NFD_FreePathU8(_: [*c]u8) void {}
+        export fn NFD_Quit() void {}
+    };
+    _ = test_dummies;
+
+    // Reset state for test
+    open_menu = -1;
+    show_about = false;
+    hover_item = -1;
+
+    // 1. Help menu click
+    const help_x: i32 = @intCast(menuLabelX(2) + 4);
+    const help_y: i32 = 10;
+    _ = handleMouseDown(help_x, help_y);
+    try std.testing.expectEqual(@as(i32, 2), open_menu);
+
+    // 2. Click About item
+    const about_y = @as(i32, @intCast(MENU_HEIGHT + 5));
+    _ = handleMouseDown(help_x, about_y);
+    try std.testing.expect(show_about);
+    try std.testing.expectEqual(@as(i32, -1), open_menu);
+
+    // 3. Mouse move during About
+    _ = handleMouseMove(100, 100);
+    try std.testing.expect(show_about); // Should still be true
+
+    // 4. Click to close About
+    _ = handleMouseDown(100, 100);
+    try std.testing.expect(!show_about);
+
+    // 5. Escape to close About
+    show_about = true;
+    _ = handleEscape();
+    try std.testing.expect(!show_about);
 }
