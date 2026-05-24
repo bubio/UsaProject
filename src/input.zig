@@ -106,41 +106,91 @@ pub fn mapKeycode(code: sapp.Keycode) ?u8 {
     };
 }
 
+var mouse_captured: bool = false;
+
+fn captureMouse() void {
+    if (!mouse_captured) {
+        mouse_captured = true;
+        sapp.lockMouse(true);
+    }
+}
+
+fn releaseMouse() void {
+    if (mouse_captured) {
+        mouse_captured = false;
+        sapp.lockMouse(false);
+    }
+}
+
+pub fn isMouseCaptured() bool {
+    return mouse_captured;
+}
+
 pub fn handleEvent(ev: [*c]const sapp.Event) callconv(.c) void {
     const event = ev.*;
 
-    // Mouse → menu UI. Consume if the menu uses it.
     switch (event.type) {
         .MOUSE_MOVE => {
-            _ = ui.handleMouseMove(@intFromFloat(event.mouse_x), @intFromFloat(event.mouse_y));
+            if (mouse_captured) {
+                const dx: i32 = @intFromFloat(event.mouse_dx);
+                const dy: i32 = @intFromFloat(event.mouse_dy);
+                cz.usa_mouse_move(dx, dy);
+            } else {
+                _ = ui.handleMouseMove(@intFromFloat(event.mouse_x), @intFromFloat(event.mouse_y));
+            }
             return;
         },
         .MOUSE_DOWN => {
-            if (event.mouse_button == .LEFT) {
-                if (ui.handleMouseDown(@intFromFloat(event.mouse_x), @intFromFloat(event.mouse_y))) return;
+            if (mouse_captured) {
+                const is_left = (event.mouse_button == .LEFT);
+                cz.usa_mouse_btn_down(if (is_left) 1 else 0);
+            } else {
+                if (event.mouse_button == .LEFT) {
+                    if (ui.handleMouseDown(@intFromFloat(event.mouse_x), @intFromFloat(event.mouse_y))) return;
+                }
+                // Click on emulator area → capture
+                const my: i32 = @intFromFloat(event.mouse_y);
+                if (my >= @as(i32, @intCast(ui.MENU_HEIGHT))) {
+                    captureMouse();
+                    const is_left = (event.mouse_button == .LEFT);
+                    cz.usa_mouse_btn_down(if (is_left) 1 else 0);
+                }
             }
+            return;
+        },
+        .MOUSE_UP => {
+            if (mouse_captured) {
+                const is_left = (event.mouse_button == .LEFT);
+                cz.usa_mouse_btn_up(if (is_left) 1 else 0);
+            }
+            return;
         },
         else => {},
     }
 
     // Handle host shortcuts first
     if (event.type == .KEY_DOWN) {
-        // ESC closes an open menu before falling through to PC-98.
-        if (event.key_code == .ESCAPE and ui.handleEscape()) return;
+        // ESC releases mouse capture; if not captured, closes menus/about
+        if (event.key_code == .ESCAPE) {
+            if (mouse_captured) {
+                releaseMouse();
+                return;
+            }
+            if (ui.handleEscape()) return;
+        }
 
         const is_super = (event.modifiers & sapp.modifier_super) != 0;
         const is_ctrl = (event.modifiers & sapp.modifier_ctrl) != 0;
         const cmd_or_ctrl = is_super or is_ctrl;
 
         if (cmd_or_ctrl) {
+            releaseMouse();
             switch (event.key_code) {
                 .R => {
-                    // Reset emulator
                     cz.pccore_reset();
                     return;
                 },
                 .Q => {
-                    // Quit emulator
                     sapp.requestQuit();
                     return;
                 },

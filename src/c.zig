@@ -42,3 +42,8 @@ pub extern fn usa_lamp_tick() void;
 pub extern fn usa_cpu_clock_mhz() f64;
 
 pub extern var pc98_framebuffer: [640 * 480]u16;
+
+// Mouse (defined in src/np2_glue.c)
+pub extern fn usa_mouse_move(dx: c_int, dy: c_int) void;
+pub extern fn usa_mouse_btn_down(left: c_int) void;
+pub extern fn usa_mouse_btn_up(left: c_int) void;

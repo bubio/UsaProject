@@ -275,10 +275,49 @@ void kbdmng_keydown(UINT8 key) { (void)key; }
 void kbdmng_keyup(UINT8 key) { (void)key; }
 void kbdmng_reset(void) {}
 
-// Mouse management stubs
-void mousemng_initialize(void) {}
+// Mouse management
+static SINT16 mouse_dx = 0;
+static SINT16 mouse_dy = 0;
+static UINT8  mouse_btn = uPD8255A_LEFTBIT | uPD8255A_RIGHTBIT;
+
+void mousemng_initialize(void) {
+	mouse_dx = 0;
+	mouse_dy = 0;
+	mouse_btn = uPD8255A_LEFTBIT | uPD8255A_RIGHTBIT;
+}
+
 void mousemng_callback(void) {}
-BOOL mousemng_getstat(SINT16 *x, SINT16 *y, UINT8 *btn) { (void)x; (void)y; (void)btn; return FALSE; }
+
+UINT8 mousemng_getstat(SINT16 *x, SINT16 *y, int clear) {
+	*x = mouse_dx;
+	*y = mouse_dy;
+	if (clear) {
+		mouse_dx = 0;
+		mouse_dy = 0;
+	}
+	return mouse_btn;
+}
+
+void usa_mouse_move(int dx, int dy) {
+	mouse_dx += (SINT16)dx;
+	mouse_dy += (SINT16)dy;
+}
+
+void usa_mouse_btn_down(int left) {
+	if (left) {
+		mouse_btn &= ~uPD8255A_LEFTBIT;
+	} else {
+		mouse_btn &= ~uPD8255A_RIGHTBIT;
+	}
+}
+
+void usa_mouse_btn_up(int left) {
+	if (left) {
+		mouse_btn |= uPD8255A_LEFTBIT;
+	} else {
+		mouse_btn |= uPD8255A_RIGHTBIT;
+	}
+}
 
 // Font management stubs
 void fontmng_initialize(void) {}
