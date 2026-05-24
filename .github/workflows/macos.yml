@@ -22,9 +22,6 @@ on:
       - published
   workflow_dispatch:
 
-env:
-  ZIG_VERSION: 0.16.0
-
 jobs:
   build-macos:
     runs-on: macos-latest
@@ -38,10 +35,9 @@ jobs:
           submodules: recursive
 
       - name: Setup Zig
-        run: |
-          curl -L -o zig.tar.xz "https://ziglang.org/download/${ZIG_VERSION}/zig-macos-aarch64-${ZIG_VERSION}.tar.xz"
-          tar xf zig.tar.xz
-          echo "$PWD/zig-macos-aarch64-${ZIG_VERSION}" >> $GITHUB_PATH
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
 
       - name: Build
         run: zig build bundle -Doptimize=ReleaseFast

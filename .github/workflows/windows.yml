@@ -22,9 +22,6 @@ on:
       - published
   workflow_dispatch:
 
-env:
-  ZIG_VERSION: 0.16.0
-
 jobs:
   build-windows:
     runs-on: windows-latest
@@ -38,11 +35,9 @@ jobs:
           submodules: recursive
 
       - name: Setup Zig
-        shell: pwsh
-        run: |
-          Invoke-WebRequest -Uri "https://ziglang.org/download/$env:ZIG_VERSION/zig-windows-x86_64-$env:ZIG_VERSION.zip" -OutFile zig.zip
-          Expand-Archive zig.zip -DestinationPath .
-          echo "$PWD\zig-windows-x86_64-$env:ZIG_VERSION" | Out-File -Append $env:GITHUB_PATH
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
 
       - name: Build
         run: zig build -Doptimize=ReleaseFast
