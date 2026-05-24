@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const sokol = @import("sokol");
 const sapp = sokol.app;
 const sg = sokol.gfx;
@@ -8,7 +7,7 @@ const sglue = sokol.glue;
 const cz = @import("c.zig");
 const c = cz.c;
 const pixel = @import("pixel.zig");
-const datadir = @import("datadir.zig");
+const platform = @import("platform.zig");
 const cli = @import("cli.zig");
 const scheduler = @import("frame_scheduler.zig");
 const input = @import("input.zig");
@@ -17,11 +16,6 @@ const ui = @import("ui.zig");
 const nfd = @import("nfd.zig");
 const sdtx = sokol.debugtext;
 const sgl = sokol.gl;
-
-const blit_vs_glsl = @embedFile("shaders/blit.vs.glsl");
-const blit_fs_glsl = @embedFile("shaders/blit.fs.glsl");
-const blit_vs_metal = @embedFile("shaders/blit.vs.metal");
-const blit_fs_metal = @embedFile("shaders/blit.fs.metal");
 
 const FB_WIDTH = 640;
 const FB_HEIGHT = 400;
@@ -162,11 +156,11 @@ fn insertDisks(opts: cli.Options) void {
 fn setupDataDir() void {
     var buf: [4096]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buf);
-    const dir = datadir.resolveDefault(fba.allocator()) catch |err| {
+    const dir = platform.resolveDataDir(fba.allocator()) catch |err| {
         std.debug.print("!! could not resolve data dir: {s}\n", .{@errorName(err)});
         return;
     };
-    datadir.ensureExists(dir) catch |err| {
+    platform.ensureExists(dir) catch |err| {
         std.debug.print("!! could not create data dir '{s}': {s}\n", .{ dir, @errorName(err) });
         // Fall through — np2_set_datadir is still useful for read-only files.
     };
@@ -175,14 +169,13 @@ fn setupDataDir() void {
 }
 
 fn makeBlitShader() sg.Shader {
-    const is_macos = (builtin.os.tag == .macos);
     return sg.makeShader(.{
         .vertex_func = .{
-            .source = if (is_macos) blit_vs_metal else blit_vs_glsl,
+            .source = platform.os.shader_vs_source,
         },
         .fragment_func = .{
-            .entry = if (is_macos) "_main" else "main",
-            .source = if (is_macos) blit_fs_metal else blit_fs_glsl,
+            .entry = platform.os.shader_entry,
+            .source = platform.os.shader_fs_source,
         },
         .views = init: {
             var v: [32]sg.ShaderView = @splat(.{});
