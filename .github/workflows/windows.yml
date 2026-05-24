@@ -1,25 +1,8 @@
 name: Windows Build
 
+# Disabled: NP2kai compiler_base.h conflicts with Windows SDK headers,
+# and Zig 0.16.0 std has a clock_gettime issue on Windows.
 on:
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - '*.md'
-      - 'docs/**'
-      - 'LICENSE'
-      - '.gitignore'
-  pull_request:
-    branches:
-      - main
-    paths-ignore:
-      - '*.md'
-      - 'docs/**'
-      - 'LICENSE'
-      - '.gitignore'
-  release:
-    types:
-      - published
   workflow_dispatch:
 
 jobs:
