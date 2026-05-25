@@ -52,3 +52,12 @@ pub extern var pc98_framebuffer: [640 * 480]u16;
 pub extern fn usa_mouse_move(dx: c_int, dy: c_int) void;
 pub extern fn usa_mouse_btn_down(left: c_int) void;
 pub extern fn usa_mouse_btn_up(left: c_int) void;
+
+// UI setting accessors (defined in src/np2_glue.c)
+pub extern fn usa_get_nowait() u8;
+pub extern fn usa_set_nowait(v: u8) void;
+pub extern fn usa_get_draw_skip() u8;
+pub extern fn usa_set_draw_skip(v: u8) void;
+pub extern fn usa_get_keyboard() u8;
+pub extern fn usa_set_keyboard(v: u8) void;
+pub extern fn usa_beep_setvol(vol: c_uint) void;

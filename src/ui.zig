@@ -6,6 +6,7 @@ const cz = @import("c.zig");
 const nfd = @import("nfd.zig");
 const nk = @import("nk.zig");
 const c = nk.c;
+const ui_dialog = @import("ui_dialog.zig");
 
 pub const MENU_HEIGHT: u32 = 26;
 pub const STATUS_HEIGHT: u32 = 22;
@@ -17,11 +18,16 @@ pub const State = struct {
     model: []const u8 = "",
 };
 
-const disk_filters = [_]nfd.Filter{
-    .{ .name = "All Disk Images", .spec = "fdi,d88,hdm,hdi,fdd,xdf,2hd,2dd,nfd,thd,nhd,vhd,hdd" },
+const fdd_filters = [_]nfd.Filter{
+    .{ .name = "FDD Images", .spec = "fdi,d88,hdm,hdi,fdd,xdf,2hd,2dd,nfd" },
+};
+const hdd_filters = [_]nfd.Filter{
+    .{ .name = "HDD Images", .spec = "thd,nhd,vhd,hdd,hdi" },
 };
 
 var show_about: bool = false;
+var show_clock: bool = false;
+var show_fps: bool = true;
 
 const PendingAction = enum {
     none,
@@ -77,6 +83,7 @@ pub fn draw(ctx: *c.nk_context, win_w: u32, win_h: u32, st: State) void {
     drawMenuBar(ctx, win_w);
     drawStatusBar(ctx, win_w, win_h, st);
     if (show_about) drawAbout(ctx, win_w, win_h);
+    ui_dialog.draw(ctx, win_w, win_h);
 }
 
 pub fn flushPendingActions() void {
@@ -97,6 +104,22 @@ pub fn flushPendingActions() void {
     }
 }
 
+// --- Helper: format checked/radio labels ---
+
+fn checkLabel(buf: *[64]u8, checked: bool, label: []const u8) [*:0]const u8 {
+    const prefix: []const u8 = if (checked) "[*] " else "[ ] ";
+    const result = std.fmt.bufPrintZ(buf, "{s}{s}", .{ prefix, label }) catch "?";
+    return result.ptr;
+}
+
+fn radioLabel(buf: *[64]u8, selected: bool, label: []const u8) [*:0]const u8 {
+    const prefix: []const u8 = if (selected) "(*) " else "( ) ";
+    const result = std.fmt.bufPrintZ(buf, "{s}{s}", .{ prefix, label }) catch "?";
+    return result.ptr;
+}
+
+// --- Menu Bar ---
+
 fn drawMenuBar(ctx: *c.nk_context, win_w: u32) void {
     const w: f32 = @floatFromInt(win_w);
     const h: f32 = @floatFromInt(MENU_HEIGHT);
@@ -105,50 +128,258 @@ fn drawMenuBar(ctx: *c.nk_context, win_w: u32) void {
     c.nk_window_set_bounds(ctx, "MenuBar", bounds);
     if (c.nk_begin(ctx, "MenuBar", bounds, c.NK_WINDOW_NO_SCROLLBAR | c.NK_WINDOW_BACKGROUND) != 0) {
         c.nk_menubar_begin(ctx);
-        c.nk_layout_row_begin(ctx, c.NK_STATIC, h - 8, 3);
+        c.nk_layout_row_begin(ctx, c.NK_STATIC, h - 8, 6);
 
-        // File
-        c.nk_layout_row_push(ctx, 45);
-        if (c.nk_menu_begin_label(ctx, "File", c.NK_TEXT_LEFT, c.nk_vec2(180, 280)) != 0) {
-            c.nk_layout_row_dynamic(ctx, 22, 1);
-            if (c.nk_menu_item_label(ctx, "Open FDD1...", c.NK_TEXT_LEFT) != 0) { pending = .open_fdd0; }
-            if (c.nk_menu_item_label(ctx, "Open FDD2...", c.NK_TEXT_LEFT) != 0) { pending = .open_fdd1; }
-            if (c.nk_menu_item_label(ctx, "Eject FDD1", c.NK_TEXT_LEFT) != 0) ejectFdd(0);
-            if (c.nk_menu_item_label(ctx, "Eject FDD2", c.NK_TEXT_LEFT) != 0) ejectFdd(1);
-            if (c.nk_menu_item_label(ctx, "Open HDD1...", c.NK_TEXT_LEFT) != 0) { pending = .open_hdd0; }
-            if (c.nk_menu_item_label(ctx, "Open HDD2...", c.NK_TEXT_LEFT) != 0) { pending = .open_hdd1; }
-            if (c.nk_menu_item_label(ctx, "Eject HDD1", c.NK_TEXT_LEFT) != 0) ejectHdd(0);
-            if (c.nk_menu_item_label(ctx, "Eject HDD2", c.NK_TEXT_LEFT) != 0) ejectHdd(1);
-            if (c.nk_menu_item_label(ctx, "Quit", c.NK_TEXT_LEFT) != 0) sapp.requestQuit();
-            c.nk_menu_end(ctx);
-        }
-
-        // System
-        c.nk_layout_row_push(ctx, 60);
-        if (c.nk_menu_begin_label(ctx, "System", c.NK_TEXT_LEFT, c.nk_vec2(160, 100)) != 0) {
-            c.nk_layout_row_dynamic(ctx, 22, 1);
-            if (c.nk_menu_item_label(ctx, "Reset", c.NK_TEXT_LEFT) != 0) {
-                cz.pccore_reset();
-            }
-            if (c.nk_menu_item_label(ctx, "System Setup", c.NK_TEXT_LEFT) != 0) {
-                cz.usa_reset_with_help();
-            }
-            c.nk_menu_end(ctx);
-        }
-
-        // Help
-        c.nk_layout_row_push(ctx, 45);
-        if (c.nk_menu_begin_label(ctx, "Help", c.NK_TEXT_LEFT, c.nk_vec2(120, 50)) != 0) {
-            c.nk_layout_row_dynamic(ctx, 22, 1);
-            if (c.nk_menu_item_label(ctx, "About", c.NK_TEXT_LEFT) != 0) show_about = true;
-            c.nk_menu_end(ctx);
-        }
+        menuEmulate(ctx);
+        menuFdd(ctx);
+        menuHdd(ctx);
+        menuScreen(ctx, h);
+        menuDevice(ctx, h);
+        menuOther(ctx);
 
         c.nk_layout_row_end(ctx);
         c.nk_menubar_end(ctx);
     }
     c.nk_end(ctx);
 }
+
+fn menuEmulate(ctx: *c.nk_context) void {
+    c.nk_layout_row_push(ctx, 65);
+    if (c.nk_menu_begin_label(ctx, "Emulate", c.NK_TEXT_LEFT, c.nk_vec2(180, 120)) != 0) {
+        c.nk_layout_row_dynamic(ctx, 22, 1);
+        if (c.nk_menu_item_label(ctx, "Reset", c.NK_TEXT_LEFT) != 0) {
+            cz.pccore_reset();
+        }
+        if (c.nk_menu_item_label(ctx, "Configure...", c.NK_TEXT_LEFT) != 0) {
+            ui_dialog.openConfigure();
+        }
+        c.nk_layout_row_dynamic(ctx, 4, 1);
+        c.nk_spacing(ctx, 1);
+        c.nk_layout_row_dynamic(ctx, 22, 1);
+        if (c.nk_menu_item_label(ctx, "Exit", c.NK_TEXT_LEFT) != 0) sapp.requestQuit();
+        c.nk_menu_end(ctx);
+    }
+}
+
+fn menuFdd(ctx: *c.nk_context) void {
+    c.nk_layout_row_push(ctx, 45);
+    if (c.nk_menu_begin_label(ctx, "FDD", c.NK_TEXT_LEFT, c.nk_vec2(180, 180)) != 0) {
+        c.nk_layout_row_dynamic(ctx, 22, 1);
+        if (c.nk_menu_item_label(ctx, "Open FDD1...", c.NK_TEXT_LEFT) != 0) { pending = .open_fdd0; }
+        if (c.nk_menu_item_label(ctx, "Eject FDD1", c.NK_TEXT_LEFT) != 0) ejectFdd(0);
+        c.nk_layout_row_dynamic(ctx, 4, 1);
+        c.nk_spacing(ctx, 1);
+        c.nk_layout_row_dynamic(ctx, 22, 1);
+        if (c.nk_menu_item_label(ctx, "Open FDD2...", c.NK_TEXT_LEFT) != 0) { pending = .open_fdd1; }
+        if (c.nk_menu_item_label(ctx, "Eject FDD2", c.NK_TEXT_LEFT) != 0) ejectFdd(1);
+        c.nk_menu_end(ctx);
+    }
+}
+
+fn menuHdd(ctx: *c.nk_context) void {
+    c.nk_layout_row_push(ctx, 45);
+    if (c.nk_menu_begin_label(ctx, "HDD", c.NK_TEXT_LEFT, c.nk_vec2(180, 180)) != 0) {
+        c.nk_layout_row_dynamic(ctx, 22, 1);
+        if (c.nk_menu_item_label(ctx, "Open IDE0...", c.NK_TEXT_LEFT) != 0) { pending = .open_hdd0; }
+        if (c.nk_menu_item_label(ctx, "Eject IDE0", c.NK_TEXT_LEFT) != 0) ejectHdd(0);
+        c.nk_layout_row_dynamic(ctx, 4, 1);
+        c.nk_spacing(ctx, 1);
+        c.nk_layout_row_dynamic(ctx, 22, 1);
+        if (c.nk_menu_item_label(ctx, "Open IDE1...", c.NK_TEXT_LEFT) != 0) { pending = .open_hdd1; }
+        if (c.nk_menu_item_label(ctx, "Eject IDE1", c.NK_TEXT_LEFT) != 0) ejectHdd(1);
+        c.nk_menu_end(ctx);
+    }
+}
+
+fn menuScreen(ctx: *c.nk_context, menu_h: f32) void {
+    _ = menu_h;
+    c.nk_layout_row_push(ctx, 60);
+    if (c.nk_menu_begin_label(ctx, "Screen", c.NK_TEXT_LEFT, c.nk_vec2(200, 320)) != 0) {
+        var buf: [64]u8 = undefined;
+        c.nk_layout_row_dynamic(ctx, 22, 1);
+
+        if (c.nk_menu_item_label(ctx, "FullScreen", c.NK_TEXT_LEFT) != 0) {
+            sapp.toggleFullscreen();
+        }
+
+        c.nk_layout_row_dynamic(ctx, 4, 1);
+        c.nk_spacing(ctx, 1);
+        c.nk_layout_row_dynamic(ctx, 22, 1);
+
+        if (c.nk_menu_item_label(ctx, checkLabel(&buf, cz.c.np2cfg.DISPSYNC != 0, "Disp Vsync"), c.NK_TEXT_LEFT) != 0) {
+            cz.c.np2cfg.DISPSYNC ^= 1;
+        }
+        if (c.nk_menu_item_label(ctx, checkLabel(&buf, cz.c.np2cfg.RASTER != 0, "Real Palettes"), c.NK_TEXT_LEFT) != 0) {
+            cz.c.np2cfg.RASTER ^= 1;
+        }
+        if (c.nk_menu_item_label(ctx, checkLabel(&buf, cz.usa_get_nowait() != 0, "No Wait"), c.NK_TEXT_LEFT) != 0) {
+            cz.usa_set_nowait(cz.usa_get_nowait() ^ 1);
+        }
+
+        c.nk_layout_row_dynamic(ctx, 4, 1);
+        c.nk_spacing(ctx, 1);
+        c.nk_layout_row_dynamic(ctx, 22, 1);
+
+        const skip = cz.usa_get_draw_skip();
+        if (c.nk_menu_item_label(ctx, radioLabel(&buf, skip == 0, "Auto frame"), c.NK_TEXT_LEFT) != 0) {
+            cz.usa_set_draw_skip(0);
+        }
+        if (c.nk_menu_item_label(ctx, radioLabel(&buf, skip == 1, "Full frame"), c.NK_TEXT_LEFT) != 0) {
+            cz.usa_set_draw_skip(1);
+        }
+        if (c.nk_menu_item_label(ctx, radioLabel(&buf, skip == 2, "1/2 frame"), c.NK_TEXT_LEFT) != 0) {
+            cz.usa_set_draw_skip(2);
+        }
+        if (c.nk_menu_item_label(ctx, radioLabel(&buf, skip == 3, "1/3 frame"), c.NK_TEXT_LEFT) != 0) {
+            cz.usa_set_draw_skip(3);
+        }
+        if (c.nk_menu_item_label(ctx, radioLabel(&buf, skip == 4, "1/4 frame"), c.NK_TEXT_LEFT) != 0) {
+            cz.usa_set_draw_skip(4);
+        }
+
+        c.nk_layout_row_dynamic(ctx, 4, 1);
+        c.nk_spacing(ctx, 1);
+        c.nk_layout_row_dynamic(ctx, 22, 1);
+        if (c.nk_menu_item_label(ctx, "Screen option...", c.NK_TEXT_LEFT) != 0) {
+            ui_dialog.openScreenOption();
+        }
+
+        c.nk_menu_end(ctx);
+    }
+}
+
+fn menuDevice(ctx: *c.nk_context, menu_h: f32) void {
+    _ = menu_h;
+    c.nk_layout_row_push(ctx, 60);
+    if (c.nk_menu_begin_label(ctx, "Device", c.NK_TEXT_LEFT, c.nk_vec2(240, 500)) != 0) {
+        var buf: [64]u8 = undefined;
+
+        // -- Keyboard --
+        c.nk_layout_row_dynamic(ctx, 22, 1);
+        c.nk_label(ctx, "-- Keyboard --", c.NK_TEXT_LEFT);
+        const kbd = cz.usa_get_keyboard();
+        if (c.nk_menu_item_label(ctx, radioLabel(&buf, kbd == 0, "JP Keyboard 106"), c.NK_TEXT_LEFT) != 0) {
+            cz.usa_set_keyboard(0);
+        }
+        if (c.nk_menu_item_label(ctx, radioLabel(&buf, kbd != 0, "US Keyboard 101"), c.NK_TEXT_LEFT) != 0) {
+            cz.usa_set_keyboard(1);
+        }
+
+        // -- Beep --
+        c.nk_layout_row_dynamic(ctx, 4, 1);
+        c.nk_spacing(ctx, 1);
+        c.nk_layout_row_dynamic(ctx, 22, 1);
+        c.nk_label(ctx, "-- Beep --", c.NK_TEXT_LEFT);
+        const beep = cz.c.np2cfg.BEEP_VOL;
+        if (c.nk_menu_item_label(ctx, radioLabel(&buf, beep == 0, "off"), c.NK_TEXT_LEFT) != 0) {
+            cz.usa_beep_setvol(0);
+        }
+        if (c.nk_menu_item_label(ctx, radioLabel(&buf, beep == 1, "low"), c.NK_TEXT_LEFT) != 0) {
+            cz.usa_beep_setvol(1);
+        }
+        if (c.nk_menu_item_label(ctx, radioLabel(&buf, beep == 2, "mid"), c.NK_TEXT_LEFT) != 0) {
+            cz.usa_beep_setvol(2);
+        }
+        if (c.nk_menu_item_label(ctx, radioLabel(&buf, beep == 3, "high"), c.NK_TEXT_LEFT) != 0) {
+            cz.usa_beep_setvol(3);
+        }
+
+        // -- Sound Board --
+        c.nk_layout_row_dynamic(ctx, 4, 1);
+        c.nk_spacing(ctx, 1);
+        c.nk_layout_row_dynamic(ctx, 22, 1);
+        c.nk_label(ctx, "-- Sound Board --", c.NK_TEXT_LEFT);
+        const snd = cz.c.np2cfg.SOUND_SW;
+        const SndId = struct {
+            const NONE: u8 = 0x00;
+            const K26: u8 = 0x02;
+            const K86: u8 = 0x04;
+            const K86_26K: u8 = 0x06;
+            const K86_ADPCM: u8 = 0x14;
+            const K118: u8 = 0x08;
+            const AMD98: u8 = 0x80;
+        };
+        if (c.nk_menu_item_label(ctx, radioLabel(&buf, snd == SndId.NONE, "Disable boards"), c.NK_TEXT_LEFT) != 0) {
+            cz.c.np2cfg.SOUND_SW = SndId.NONE;
+        }
+        if (c.nk_menu_item_label(ctx, radioLabel(&buf, snd == SndId.K26, "PC-9801-26K"), c.NK_TEXT_LEFT) != 0) {
+            cz.c.np2cfg.SOUND_SW = SndId.K26;
+        }
+        if (c.nk_menu_item_label(ctx, radioLabel(&buf, snd == SndId.K86, "PC-9801-86"), c.NK_TEXT_LEFT) != 0) {
+            cz.c.np2cfg.SOUND_SW = SndId.K86;
+        }
+        if (c.nk_menu_item_label(ctx, radioLabel(&buf, snd == SndId.K86_26K, "PC-9801-26K + 86"), c.NK_TEXT_LEFT) != 0) {
+            cz.c.np2cfg.SOUND_SW = SndId.K86_26K;
+        }
+        if (c.nk_menu_item_label(ctx, radioLabel(&buf, snd == SndId.K86_ADPCM, "PC-9801-86 + Chibi-oto"), c.NK_TEXT_LEFT) != 0) {
+            cz.c.np2cfg.SOUND_SW = SndId.K86_ADPCM;
+        }
+        if (c.nk_menu_item_label(ctx, radioLabel(&buf, snd == SndId.K118, "PC-9801-118"), c.NK_TEXT_LEFT) != 0) {
+            cz.c.np2cfg.SOUND_SW = SndId.K118;
+        }
+        if (c.nk_menu_item_label(ctx, radioLabel(&buf, snd == SndId.AMD98, "AMD-98"), c.NK_TEXT_LEFT) != 0) {
+            cz.c.np2cfg.SOUND_SW = SndId.AMD98;
+        }
+
+        c.nk_layout_row_dynamic(ctx, 4, 1);
+        c.nk_spacing(ctx, 1);
+        c.nk_layout_row_dynamic(ctx, 22, 1);
+        if (c.nk_menu_item_label(ctx, checkLabel(&buf, cz.c.np2cfg.MOTOR != 0, "Seek Sound"), c.NK_TEXT_LEFT) != 0) {
+            cz.c.np2cfg.MOTOR ^= 1;
+        }
+
+        // -- Memory --
+        c.nk_layout_row_dynamic(ctx, 4, 1);
+        c.nk_spacing(ctx, 1);
+        c.nk_layout_row_dynamic(ctx, 22, 1);
+        c.nk_label(ctx, "-- Memory --", c.NK_TEXT_LEFT);
+        const ext = cz.c.np2cfg.EXTMEM;
+        const MemEntry = struct { val: u16, label: []const u8 };
+        const mem_entries = [_]MemEntry{
+            .{ .val = 0, .label = "640KB" },
+            .{ .val = 1, .label = "1.6MB" },
+            .{ .val = 3, .label = "3.6MB" },
+            .{ .val = 7, .label = "7.6MB" },
+            .{ .val = 13, .label = "13.6MB" },
+        };
+        for (mem_entries) |entry| {
+            if (c.nk_menu_item_label(ctx, radioLabel(&buf, ext == entry.val, entry.label), c.NK_TEXT_LEFT) != 0) {
+                cz.c.np2cfg.EXTMEM = entry.val;
+            }
+        }
+
+        // -- Sound option --
+        c.nk_layout_row_dynamic(ctx, 4, 1);
+        c.nk_spacing(ctx, 1);
+        c.nk_layout_row_dynamic(ctx, 22, 1);
+        if (c.nk_menu_item_label(ctx, "Sound option...", c.NK_TEXT_LEFT) != 0) {
+            ui_dialog.openSoundMixer();
+        }
+
+        c.nk_menu_end(ctx);
+    }
+}
+
+fn menuOther(ctx: *c.nk_context) void {
+    var buf: [64]u8 = undefined;
+    c.nk_layout_row_push(ctx, 50);
+    if (c.nk_menu_begin_label(ctx, "Other", c.NK_TEXT_LEFT, c.nk_vec2(160, 120)) != 0) {
+        c.nk_layout_row_dynamic(ctx, 22, 1);
+        if (c.nk_menu_item_label(ctx, checkLabel(&buf, show_clock, "Clock Disp"), c.NK_TEXT_LEFT) != 0) {
+            show_clock = !show_clock;
+        }
+        if (c.nk_menu_item_label(ctx, checkLabel(&buf, show_fps, "Frame Disp"), c.NK_TEXT_LEFT) != 0) {
+            show_fps = !show_fps;
+        }
+        c.nk_layout_row_dynamic(ctx, 4, 1);
+        c.nk_spacing(ctx, 1);
+        c.nk_layout_row_dynamic(ctx, 22, 1);
+        if (c.nk_menu_item_label(ctx, "About...", c.NK_TEXT_LEFT) != 0) show_about = true;
+        c.nk_menu_end(ctx);
+    }
+}
+
+// --- Status Bar ---
 
 fn drawStatusBar(ctx: *c.nk_context, win_w: u32, win_h: u32, st: State) void {
     const y: f32 = @floatFromInt(win_h - STATUS_HEIGHT);
@@ -170,9 +401,13 @@ fn drawStatusBar(ctx: *c.nk_context, win_w: u32, win_h: u32, st: State) void {
 
         drawFddLamps(ctx, st.fdd_access);
 
-        var fbuf: [16]u8 = undefined;
-        const fline = std.fmt.bufPrintZ(&fbuf, "{d:.1} FPS", .{st.fps}) catch "? FPS";
-        c.nk_label(ctx, fline.ptr, c.NK_TEXT_RIGHT);
+        if (show_fps) {
+            var fbuf: [16]u8 = undefined;
+            const fline = std.fmt.bufPrintZ(&fbuf, "{d:.1} FPS", .{st.fps}) catch "? FPS";
+            c.nk_label(ctx, fline.ptr, c.NK_TEXT_RIGHT);
+        } else {
+            c.nk_spacing(ctx, 1);
+        }
     }
     c.nk_end(ctx);
 }
@@ -203,6 +438,8 @@ fn drawFddLamps(ctx: *c.nk_context, access: [4]bool) void {
     }
 }
 
+// --- About Dialog ---
+
 fn drawAbout(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
     const dw: f32 = 340;
     const dh: f32 = 155;
@@ -210,7 +447,6 @@ fn drawAbout(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
     const dy = (@as(f32, @floatFromInt(win_h)) - dh) / 2.0;
 
     if (c.nk_begin(ctx, "About UsaProject", c.nk_rect(dx, dy, dw, dh), c.NK_WINDOW_BORDER | c.NK_WINDOW_TITLE | c.NK_WINDOW_MOVABLE | c.NK_WINDOW_NO_SCROLLBAR) != 0) {
-        // Icon + text side by side
         c.nk_layout_row_begin(ctx, c.NK_STATIC, 80, 2);
 
         if (about_icon_valid) {
@@ -235,37 +471,28 @@ fn drawAbout(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
     c.nk_end(ctx);
 }
 
+// --- Disk Operations ---
+
 const disk_alloc = std.heap.page_allocator;
 
 fn openFdd(drv: u32) void {
-    if (pickDisk()) |path| {
+    if (nfd.openDialog(disk_alloc, &fdd_filters) catch null) |path| {
         defer disk_alloc.free(path);
-        std.debug.print(">>> FDD{d}: {s}\n", .{ drv, path });
         cz.np2_insert_fdd(drv, path.ptr);
     }
 }
 
 fn openHdd(drv: u32) void {
-    if (pickDisk()) |path| {
+    if (nfd.openDialog(disk_alloc, &hdd_filters) catch null) |path| {
         defer disk_alloc.free(path);
-        std.debug.print(">>> HDD{d}: {s}\n", .{ drv, path });
         cz.np2_insert_hdd(drv, path.ptr);
     }
 }
 
-fn pickDisk() ?[:0]u8 {
-    return nfd.openDialog(disk_alloc, &disk_filters) catch |err| {
-        std.debug.print("!! NFD error: {s}\n", .{@errorName(err)});
-        return null;
-    };
-}
-
 fn ejectFdd(drv: u32) void {
     cz.np2_eject_fdd(drv);
-    std.debug.print(">>> Ejected FDD{d}\n", .{drv + 1});
 }
 
 fn ejectHdd(drv: u32) void {
     cz.np2_eject_hdd(drv);
-    std.debug.print(">>> Ejected HDD{d}\n", .{drv + 1});
 }

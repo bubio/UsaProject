@@ -448,3 +448,21 @@ void np2_insert_hdd(unsigned drv, const char *path) {
 void np2_eject_hdd(unsigned drv) {
     sxsi_devclose((REG8)drv);
 }
+
+// --- UI setting accessors (called from Zig ui.zig) ---
+
+#include <sound/beep.h>
+
+uint8_t usa_get_nowait(void)       { return np2oscfg.NOWAIT; }
+void    usa_set_nowait(uint8_t v)  { np2oscfg.NOWAIT = v; }
+
+uint8_t usa_get_draw_skip(void)       { return np2oscfg.DRAW_SKIP; }
+void    usa_set_draw_skip(uint8_t v)  { np2oscfg.DRAW_SKIP = v; }
+
+uint8_t usa_get_keyboard(void)       { return np2oscfg.KEYBOARD; }
+void    usa_set_keyboard(uint8_t v)  { np2oscfg.KEYBOARD = v; }
+
+void usa_beep_setvol(unsigned vol) {
+    np2cfg.BEEP_VOL = (UINT8)vol;
+    beep_setvol(vol);
+}
