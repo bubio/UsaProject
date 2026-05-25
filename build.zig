@@ -43,6 +43,11 @@ pub fn build(b: *std.Build) void {
             exe.root_module.linkSystemLibrary("ole32", .{});
             exe.root_module.linkSystemLibrary("uuid", .{});
             exe.root_module.linkSystemLibrary("shell32", .{});
+            // Embed a manifest that sets the process ACP to UTF-8 so
+            // C runtime fopen()/CRT path APIs round-trip non-ASCII paths.
+            exe.root_module.addWin32ResourceFile(.{
+                .file = b.path("assets/UsaProject.rc"),
+            });
         },
         .linux => {
             exe.root_module.addCSourceFile(.{

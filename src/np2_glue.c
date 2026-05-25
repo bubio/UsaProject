@@ -20,6 +20,9 @@
 #include <fdd/sxsi.h>
 #include <errno.h>
 
+// BOOL is int on Windows but bool elsewhere — wrap to expose a stable int ABI to Zig.
+void usa_pccore_exec(int draw) { pccore_exec((BOOL)(draw != 0)); }
+
 // Global structures expected by NP2kai
 SCRNMNG scrnmng;
 UINT sys_updates;

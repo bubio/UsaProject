@@ -177,6 +177,12 @@ fn makeBlitShader() sg.Shader {
             .entry = platform.os.shader_entry,
             .source = platform.os.shader_fs_source,
         },
+        .attrs = init: {
+            var a: [16]sg.ShaderVertexAttr = @splat(.{});
+            a[0] = .{ .base_type = .FLOAT, .hlsl_sem_name = "POSITION", .hlsl_sem_index = 0 };
+            a[1] = .{ .base_type = .FLOAT, .hlsl_sem_name = "TEXCOORD", .hlsl_sem_index = 0 };
+            break :init a;
+        },
         .views = init: {
             var v: [32]sg.ShaderView = @splat(.{});
             v[0].texture = .{
@@ -184,6 +190,7 @@ fn makeBlitShader() sg.Shader {
                 .image_type = ._2D,
                 .sample_type = .FLOAT,
                 .msl_texture_n = 0,
+                .hlsl_register_t_n = 0,
             };
             break :init v;
         },
@@ -193,6 +200,7 @@ fn makeBlitShader() sg.Shader {
                 .stage = .FRAGMENT,
                 .sampler_type = .FILTERING,
                 .msl_sampler_n = 0,
+                .hlsl_register_s_n = 0,
             };
             break :init s;
         },
@@ -210,9 +218,7 @@ fn makeBlitShader() sg.Shader {
 }
 
 export fn frame() void {
-    var ts: std.c.timespec = undefined;
-    _ = std.c.clock_gettime(std.c.CLOCK.MONOTONIC, &ts);
-    const now: i128 = @as(i128, ts.sec) * std.time.ns_per_s + ts.nsec;
+    const now: i128 = platform.os.monotonicNs();
     const decision = scheduler.decide(now, last_emu_ns);
     last_emu_ns = decision.new_last_ns;
 

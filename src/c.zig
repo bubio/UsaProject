@@ -16,7 +16,10 @@ pub const c = @cImport({
 pub const pccore_init = c.pccore_init;
 pub const pccore_term = c.pccore_term;
 pub const pccore_reset = c.pccore_reset;
-pub const pccore_exec = c.pccore_exec;
+pub extern fn usa_pccore_exec(draw: c_int) void;
+pub inline fn pccore_exec(draw: bool) void {
+    usa_pccore_exec(if (draw) 1 else 0);
+}
 pub const scrndraw_redraw = c.scrndraw_redraw;
 pub const keystat_keydown = c.keystat_keydown;
 pub const keystat_keyup = c.keystat_keyup;

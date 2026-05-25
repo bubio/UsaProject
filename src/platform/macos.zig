@@ -9,3 +9,9 @@ pub const data_dir_template = "{s}/Library/Application Support/{s}";
 pub fn getHome() ?[*:0]const u8 {
     return std.c.getenv("HOME");
 }
+
+pub fn monotonicNs() i128 {
+    var ts: std.posix.timespec = undefined;
+    std.posix.clock_gettime(.MONOTONIC, &ts) catch return 0;
+    return @as(i128, ts.sec) * std.time.ns_per_s + ts.nsec;
+}
