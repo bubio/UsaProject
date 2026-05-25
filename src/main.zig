@@ -17,6 +17,18 @@ const nfd = @import("nfd.zig");
 const sdtx = sokol.debugtext;
 const sgl = sokol.gl;
 
+const app_icon_rgba = @embedFile("AppIcon128.raw");
+
+fn makeAppIcon() sapp.IconDesc {
+    var desc: sapp.IconDesc = .{ .sokol_default = false };
+    desc.images[0] = .{
+        .width = 128,
+        .height = 128,
+        .pixels = .{ .ptr = app_icon_rgba.ptr, .size = app_icon_rgba.len },
+    };
+    return desc;
+}
+
 const FB_WIDTH = 640;
 const FB_HEIGHT = 400;
 const WIN_WIDTH = FB_WIDTH;
@@ -309,7 +321,7 @@ pub fn main(proc: std.process.Init.Minimal) void {
         .height = WIN_HEIGHT,
         .window_title = "UsaProject",
         .high_dpi = false,
-        .icon = .{ .sokol_default = false },
+        .icon = makeAppIcon(),
         .logger = .{ .func = sokol.log.func },
     });
 }
