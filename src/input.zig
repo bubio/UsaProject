@@ -2,6 +2,7 @@ const std = @import("std");
 const sapp = @import("sokol").app;
 const cz = @import("c.zig");
 const ui = @import("ui.zig");
+const nk = @import("nk.zig");
 
 /// Convert a sokol app keycode to a PC-98 NKEY code.
 /// Returns null if the key has no direct mapping or is unmapped.
@@ -140,6 +141,9 @@ pub fn isMouseCaptured() bool {
 
 pub fn handleEvent(ev: [*c]const sapp.Event) callconv(.c) void {
     const event = ev.*;
+
+    // Let Nuklear process the event first
+    if (nk.handleEvent(@ptrCast(ev))) return;
 
     switch (event.type) {
         .MOUSE_MOVE => {

@@ -207,6 +207,21 @@ pub fn build(b: *std.Build) void {
         .flags = full_flags,
     });
 
+    // Nuklear GUI (via sokol_nuklear)
+    exe.root_module.addIncludePath(b.path("third_party/nuklear"));
+    exe.root_module.addIncludePath(b.path("third_party/sokol"));
+    exe.root_module.addIncludePath(dep_sokol.path("src/sokol/c"));
+    const nk_backend_define: []const u8 = switch (target.result.os.tag) {
+        .macos => "SOKOL_METAL",
+        .windows => "SOKOL_D3D11",
+        .linux => "SOKOL_GLCORE",
+        else => "SOKOL_GLCORE",
+    };
+    exe.root_module.addCSourceFile(.{
+        .file = b.path("src/nuklear_impl.c"),
+        .flags = &.{ "-fno-sanitize=all", b.fmt("-D{s}", .{nk_backend_define}) },
+    });
+
     exe.root_module.link_libc = true;
     exe.root_module.link_libcpp = true;
 

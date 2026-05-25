@@ -14,6 +14,7 @@ const input = @import("input.zig");
 const audio = @import("audio.zig");
 const ui = @import("ui.zig");
 const nfd = @import("nfd.zig");
+const nk = @import("nk.zig");
 const sdtx = sokol.debugtext;
 const sgl = sokol.gl;
 
@@ -83,6 +84,7 @@ export fn init() void {
     });
 
     ui.setup();
+    nk.setup(.{});
 
     setupDataDir();
 
@@ -269,10 +271,13 @@ export fn frame() void {
         .model = std.mem.sliceTo(&c.np2cfg.model, 0),
     });
 
+    _ = nk.newFrame();
+
     sg.beginPass(.{ .action = state.pass_action, .swapchain = sglue.swapchain() });
     sg.applyPipeline(state.pipeline);
     sg.applyBindings(state.bindings);
     sg.draw(0, 6, 1);
+    nk.render(sapp.width(), sapp.height());
     sgl.draw();
     sdtx.draw();
     sg.endPass();
@@ -282,6 +287,7 @@ export fn frame() void {
 export fn cleanup() void {
     cz.pccore_term();
     nfd.deinit();
+    nk.shutdown();
     ui.shutdown();
     saudio.shutdown();
     sg.shutdown();
