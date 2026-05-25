@@ -11,7 +11,7 @@ pub fn getHome() ?[*:0]const u8 {
 }
 
 pub fn monotonicNs() i128 {
-    var ts: std.posix.timespec = undefined;
-    std.posix.clock_gettime(.MONOTONIC, &ts) catch return 0;
+    var ts: std.c.timespec = undefined;
+    _ = std.c.clock_gettime(std.c.CLOCK.MONOTONIC, &ts);
     return @as(i128, ts.sec) * std.time.ns_per_s + ts.nsec;
 }
