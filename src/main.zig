@@ -15,8 +15,6 @@ const audio = @import("audio.zig");
 const ui = @import("ui.zig");
 const nfd = @import("nfd.zig");
 const nk = @import("nk.zig");
-const sdtx = sokol.debugtext;
-const sgl = sokol.gl;
 
 const app_icon_rgba = @embedFile("AppIcon128.raw");
 
@@ -83,8 +81,8 @@ export fn init() void {
         .logger = .{ .func = sokol.log.func },
     });
 
-    ui.setup();
     nk.setup(.{});
+    ui.setup();
 
     setupDataDir();
 
@@ -259,7 +257,11 @@ export fn frame() void {
     cz.usa_lamp_tick();
     const dt = sapp.frameDuration();
     const fps: f32 = if (dt > 0.0) @floatCast(1.0 / dt) else 0.0;
-    ui.draw(WIN_WIDTH, WIN_HEIGHT, .{
+
+    const nk_ctx = nk.newFrame();
+    const cur_w: u32 = @intCast(sapp.width());
+    const cur_h: u32 = @intCast(sapp.height());
+    ui.draw(nk_ctx, cur_w, cur_h, .{
         .fps = fps,
         .cpu_mhz = @floatCast(cz.usa_cpu_clock_mhz()),
         .fdd_access = .{
@@ -271,24 +273,22 @@ export fn frame() void {
         .model = std.mem.sliceTo(&c.np2cfg.model, 0),
     });
 
-    _ = nk.newFrame();
-
     sg.beginPass(.{ .action = state.pass_action, .swapchain = sglue.swapchain() });
     sg.applyPipeline(state.pipeline);
     sg.applyBindings(state.bindings);
     sg.draw(0, 6, 1);
     nk.render(sapp.width(), sapp.height());
-    sgl.draw();
-    sdtx.draw();
     sg.endPass();
     sg.commit();
+
+    ui.flushPendingActions();
 }
 
 export fn cleanup() void {
     cz.pccore_term();
     nfd.deinit();
-    nk.shutdown();
     ui.shutdown();
+    nk.shutdown();
     saudio.shutdown();
     sg.shutdown();
 }

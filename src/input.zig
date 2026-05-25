@@ -1,8 +1,8 @@
 const std = @import("std");
 const sapp = @import("sokol").app;
 const cz = @import("c.zig");
-const ui = @import("ui.zig");
 const nk = @import("nk.zig");
+const ui = @import("ui.zig");
 
 /// Convert a sokol app keycode to a PC-98 NKEY code.
 /// Returns null if the key has no direct mapping or is unmapped.
@@ -142,57 +142,13 @@ pub fn isMouseCaptured() bool {
 pub fn handleEvent(ev: [*c]const sapp.Event) callconv(.c) void {
     const event = ev.*;
 
-    // Let Nuklear process the event first
-    if (nk.handleEvent(@ptrCast(ev))) return;
-
-    switch (event.type) {
-        .MOUSE_MOVE => {
-            if (mouse_captured) {
-                const dx: i32 = @intFromFloat(event.mouse_dx);
-                const dy: i32 = @intFromFloat(event.mouse_dy);
-                cz.usa_mouse_move(dx, dy);
-            } else {
-                _ = ui.handleMouseMove(@intFromFloat(event.mouse_x), @intFromFloat(event.mouse_y));
-            }
-            return;
-        },
-        .MOUSE_DOWN => {
-            if (mouse_captured) {
-                const is_left = (event.mouse_button == .LEFT);
-                cz.usa_mouse_btn_down(if (is_left) 1 else 0);
-            } else {
-                if (event.mouse_button == .LEFT) {
-                    if (ui.handleMouseDown(@intFromFloat(event.mouse_x), @intFromFloat(event.mouse_y))) return;
-                }
-                // Click on emulator area → capture
-                const my: i32 = @intFromFloat(event.mouse_y);
-                if (my >= @as(i32, @intCast(ui.MENU_HEIGHT))) {
-                    captureMouse();
-                    const is_left = (event.mouse_button == .LEFT);
-                    cz.usa_mouse_btn_down(if (is_left) 1 else 0);
-                }
-            }
-            return;
-        },
-        .MOUSE_UP => {
-            if (mouse_captured) {
-                const is_left = (event.mouse_button == .LEFT);
-                cz.usa_mouse_btn_up(if (is_left) 1 else 0);
-            }
-            return;
-        },
-        else => {},
-    }
-
-    // Handle host shortcuts first
+    // Host shortcuts — always active regardless of Nuklear/mouse state
     if (event.type == .KEY_DOWN) {
-        // ESC releases mouse capture; if not captured, closes menus/about
         if (event.key_code == .ESCAPE) {
             if (mouse_captured) {
                 releaseMouse();
                 return;
             }
-            if (ui.handleEscape()) return;
         }
 
         const is_super = (event.modifiers & sapp.modifier_super) != 0;
@@ -216,7 +172,51 @@ pub fn handleEvent(ev: [*c]const sapp.Event) callconv(.c) void {
         }
     }
 
-    // Pass to PC-98
+    // When mouse is captured, route directly to emulator (skip Nuklear)
+    if (mouse_captured) {
+        switch (event.type) {
+            .MOUSE_MOVE => {
+                cz.usa_mouse_move(@intFromFloat(event.mouse_dx), @intFromFloat(event.mouse_dy));
+            },
+            .MOUSE_DOWN => {
+                cz.usa_mouse_btn_down(if (event.mouse_button == .LEFT) 1 else 0);
+            },
+            .MOUSE_UP => {
+                cz.usa_mouse_btn_up(if (event.mouse_button == .LEFT) 1 else 0);
+            },
+            .KEY_DOWN => {
+                if (mapKeycode(event.key_code)) |nkey| {
+                    keys_held[nkey] = true;
+                    cz.keystat_keydown(nkey);
+                }
+            },
+            .KEY_UP => {
+                if (mapKeycode(event.key_code)) |nkey| {
+                    keys_held[nkey] = false;
+                    cz.keystat_keyup(nkey);
+                }
+            },
+            else => {},
+        }
+        return;
+    }
+
+    // Let Nuklear handle UI events (menu bar, status bar, dialogs)
+    if (nk.handleEvent(@ptrCast(ev))) return;
+
+    // Uncaptured click in emulator area → capture mouse
+    if (event.type == .MOUSE_DOWN) {
+        const my: i32 = @intFromFloat(event.mouse_y);
+        const emu_top: i32 = @intCast(ui.MENU_HEIGHT);
+        const emu_bot: i32 = @intCast(sapp.height() - @as(c_int, @intCast(ui.STATUS_HEIGHT)));
+        if (my >= emu_top and my < emu_bot) {
+            captureMouse();
+            cz.usa_mouse_btn_down(if (event.mouse_button == .LEFT) 1 else 0);
+        }
+        return;
+    }
+
+    // Pass keyboard to PC-98
     if (event.type == .KEY_DOWN) {
         if (mapKeycode(event.key_code)) |nkey| {
             keys_held[nkey] = true;
