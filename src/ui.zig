@@ -25,7 +25,6 @@ const hdd_filters = [_]nfd.Filter{
     .{ .name = "HDD Images", .spec = "thd,nhd,vhd,hdd,hdi" },
 };
 
-var show_about: bool = false;
 var show_clock: bool = false;
 var show_fps: bool = true;
 
@@ -82,7 +81,7 @@ pub fn shutdown() void {
 pub fn draw(ctx: *c.nk_context, win_w: u32, win_h: u32, st: State) void {
     drawMenuBar(ctx, win_w);
     drawStatusBar(ctx, win_w, win_h, st);
-    if (show_about) drawAbout(ctx, win_w, win_h);
+    if (ui_dialog.show_about) drawAbout(ctx, win_w, win_h);
     ui_dialog.draw(ctx, win_w, win_h);
 }
 
@@ -251,110 +250,46 @@ fn menuScreen(ctx: *c.nk_context, menu_h: f32) void {
 fn menuDevice(ctx: *c.nk_context, menu_h: f32) void {
     _ = menu_h;
     c.nk_layout_row_push(ctx, 60);
-    if (c.nk_menu_begin_label(ctx, "Device", c.NK_TEXT_LEFT, c.nk_vec2(240, 500)) != 0) {
+    if (c.nk_menu_begin_label(ctx, "Device", c.NK_TEXT_LEFT, c.nk_vec2(210, 280)) != 0) {
         var buf: [64]u8 = undefined;
 
-        // -- Keyboard --
+        // Keyboard
         c.nk_layout_row_dynamic(ctx, 22, 1);
-        c.nk_label(ctx, "-- Keyboard --", c.NK_TEXT_LEFT);
         const kbd = cz.usa_get_keyboard();
-        if (c.nk_menu_item_label(ctx, radioLabel(&buf, kbd == 0, "JP Keyboard 106"), c.NK_TEXT_LEFT) != 0) {
+        if (c.nk_menu_item_label(ctx, radioLabel(&buf, kbd == 0, "JP 106 Keyboard"), c.NK_TEXT_LEFT) != 0) {
             cz.usa_set_keyboard(0);
         }
-        if (c.nk_menu_item_label(ctx, radioLabel(&buf, kbd != 0, "US Keyboard 101"), c.NK_TEXT_LEFT) != 0) {
+        if (c.nk_menu_item_label(ctx, radioLabel(&buf, kbd != 0, "US 101 Keyboard"), c.NK_TEXT_LEFT) != 0) {
             cz.usa_set_keyboard(1);
         }
 
-        // -- Beep --
+        // Beep
         c.nk_layout_row_dynamic(ctx, 4, 1);
         c.nk_spacing(ctx, 1);
         c.nk_layout_row_dynamic(ctx, 22, 1);
-        c.nk_label(ctx, "-- Beep --", c.NK_TEXT_LEFT);
         const beep = cz.c.np2cfg.BEEP_VOL;
-        if (c.nk_menu_item_label(ctx, radioLabel(&buf, beep == 0, "off"), c.NK_TEXT_LEFT) != 0) {
+        if (c.nk_menu_item_label(ctx, radioLabel(&buf, beep == 0, "Beep off"), c.NK_TEXT_LEFT) != 0)
             cz.usa_beep_setvol(0);
-        }
-        if (c.nk_menu_item_label(ctx, radioLabel(&buf, beep == 1, "low"), c.NK_TEXT_LEFT) != 0) {
+        if (c.nk_menu_item_label(ctx, radioLabel(&buf, beep == 1, "Beep low"), c.NK_TEXT_LEFT) != 0)
             cz.usa_beep_setvol(1);
-        }
-        if (c.nk_menu_item_label(ctx, radioLabel(&buf, beep == 2, "mid"), c.NK_TEXT_LEFT) != 0) {
+        if (c.nk_menu_item_label(ctx, radioLabel(&buf, beep == 2, "Beep mid"), c.NK_TEXT_LEFT) != 0)
             cz.usa_beep_setvol(2);
-        }
-        if (c.nk_menu_item_label(ctx, radioLabel(&buf, beep == 3, "high"), c.NK_TEXT_LEFT) != 0) {
+        if (c.nk_menu_item_label(ctx, radioLabel(&buf, beep == 3, "Beep high"), c.NK_TEXT_LEFT) != 0)
             cz.usa_beep_setvol(3);
-        }
 
-        // -- Sound Board --
+        // Seek Sound
         c.nk_layout_row_dynamic(ctx, 4, 1);
         c.nk_spacing(ctx, 1);
         c.nk_layout_row_dynamic(ctx, 22, 1);
-        c.nk_label(ctx, "-- Sound Board --", c.NK_TEXT_LEFT);
-        const snd = cz.c.np2cfg.SOUND_SW;
-        const SndId = struct {
-            const NONE: u8 = 0x00;
-            const K26: u8 = 0x02;
-            const K86: u8 = 0x04;
-            const K86_26K: u8 = 0x06;
-            const K86_ADPCM: u8 = 0x14;
-            const K118: u8 = 0x08;
-            const AMD98: u8 = 0x80;
-        };
-        if (c.nk_menu_item_label(ctx, radioLabel(&buf, snd == SndId.NONE, "Disable boards"), c.NK_TEXT_LEFT) != 0) {
-            cz.c.np2cfg.SOUND_SW = SndId.NONE;
-        }
-        if (c.nk_menu_item_label(ctx, radioLabel(&buf, snd == SndId.K26, "PC-9801-26K"), c.NK_TEXT_LEFT) != 0) {
-            cz.c.np2cfg.SOUND_SW = SndId.K26;
-        }
-        if (c.nk_menu_item_label(ctx, radioLabel(&buf, snd == SndId.K86, "PC-9801-86"), c.NK_TEXT_LEFT) != 0) {
-            cz.c.np2cfg.SOUND_SW = SndId.K86;
-        }
-        if (c.nk_menu_item_label(ctx, radioLabel(&buf, snd == SndId.K86_26K, "PC-9801-26K + 86"), c.NK_TEXT_LEFT) != 0) {
-            cz.c.np2cfg.SOUND_SW = SndId.K86_26K;
-        }
-        if (c.nk_menu_item_label(ctx, radioLabel(&buf, snd == SndId.K86_ADPCM, "PC-9801-86 + Chibi-oto"), c.NK_TEXT_LEFT) != 0) {
-            cz.c.np2cfg.SOUND_SW = SndId.K86_ADPCM;
-        }
-        if (c.nk_menu_item_label(ctx, radioLabel(&buf, snd == SndId.K118, "PC-9801-118"), c.NK_TEXT_LEFT) != 0) {
-            cz.c.np2cfg.SOUND_SW = SndId.K118;
-        }
-        if (c.nk_menu_item_label(ctx, radioLabel(&buf, snd == SndId.AMD98, "AMD-98"), c.NK_TEXT_LEFT) != 0) {
-            cz.c.np2cfg.SOUND_SW = SndId.AMD98;
-        }
-
-        c.nk_layout_row_dynamic(ctx, 4, 1);
-        c.nk_spacing(ctx, 1);
-        c.nk_layout_row_dynamic(ctx, 22, 1);
-        if (c.nk_menu_item_label(ctx, checkLabel(&buf, cz.c.np2cfg.MOTOR != 0, "Seek Sound"), c.NK_TEXT_LEFT) != 0) {
+        if (c.nk_menu_item_label(ctx, checkLabel(&buf, cz.c.np2cfg.MOTOR != 0, "Seek Sound"), c.NK_TEXT_LEFT) != 0)
             cz.c.np2cfg.MOTOR ^= 1;
-        }
 
-        // -- Memory --
+        // Sound option
         c.nk_layout_row_dynamic(ctx, 4, 1);
         c.nk_spacing(ctx, 1);
         c.nk_layout_row_dynamic(ctx, 22, 1);
-        c.nk_label(ctx, "-- Memory --", c.NK_TEXT_LEFT);
-        const ext = cz.c.np2cfg.EXTMEM;
-        const MemEntry = struct { val: u16, label: []const u8 };
-        const mem_entries = [_]MemEntry{
-            .{ .val = 0, .label = "640KB" },
-            .{ .val = 1, .label = "1.6MB" },
-            .{ .val = 3, .label = "3.6MB" },
-            .{ .val = 7, .label = "7.6MB" },
-            .{ .val = 13, .label = "13.6MB" },
-        };
-        for (mem_entries) |entry| {
-            if (c.nk_menu_item_label(ctx, radioLabel(&buf, ext == entry.val, entry.label), c.NK_TEXT_LEFT) != 0) {
-                cz.c.np2cfg.EXTMEM = entry.val;
-            }
-        }
-
-        // -- Sound option --
-        c.nk_layout_row_dynamic(ctx, 4, 1);
-        c.nk_spacing(ctx, 1);
-        c.nk_layout_row_dynamic(ctx, 22, 1);
-        if (c.nk_menu_item_label(ctx, "Sound option...", c.NK_TEXT_LEFT) != 0) {
+        if (c.nk_menu_item_label(ctx, "Sound option...", c.NK_TEXT_LEFT) != 0)
             ui_dialog.openSoundMixer();
-        }
 
         c.nk_menu_end(ctx);
     }
@@ -374,7 +309,7 @@ fn menuOther(ctx: *c.nk_context) void {
         c.nk_layout_row_dynamic(ctx, 4, 1);
         c.nk_spacing(ctx, 1);
         c.nk_layout_row_dynamic(ctx, 22, 1);
-        if (c.nk_menu_item_label(ctx, "About...", c.NK_TEXT_LEFT) != 0) show_about = true;
+        if (c.nk_menu_item_label(ctx, "About...", c.NK_TEXT_LEFT) != 0) ui_dialog.openAbout();
         c.nk_menu_end(ctx);
     }
 }
@@ -442,11 +377,19 @@ fn drawFddLamps(ctx: *c.nk_context, access: [4]bool) void {
 
 fn drawAbout(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
     const dw: f32 = 340;
-    const dh: f32 = 155;
+    const dh: f32 = 130;
     const dx = (@as(f32, @floatFromInt(win_w)) - dw) / 2.0;
     const dy = (@as(f32, @floatFromInt(win_h)) - dh) / 2.0;
+    const bounds = c.nk_rect(dx, dy, dw, dh);
+    const flags = c.NK_WINDOW_BORDER | c.NK_WINDOW_TITLE | c.NK_WINDOW_MOVABLE | c.NK_WINDOW_CLOSABLE | c.NK_WINDOW_NO_SCROLLBAR;
 
-    if (c.nk_begin(ctx, "About UsaProject", c.nk_rect(dx, dy, dw, dh), c.NK_WINDOW_BORDER | c.NK_WINDOW_TITLE | c.NK_WINDOW_MOVABLE | c.NK_WINDOW_NO_SCROLLBAR) != 0) {
+    c.nk_window_show(ctx, "About UsaProject", c.NK_SHOWN);
+    if (ui_dialog.reopen_about) {
+        ui_dialog.reopen_about = false;
+        c.nk_window_set_bounds(ctx, "About UsaProject", bounds);
+    }
+
+    if (c.nk_begin(ctx, "About UsaProject", bounds, flags) != 0) {
         c.nk_layout_row_begin(ctx, c.NK_STATIC, 80, 2);
 
         if (about_icon_valid) {
@@ -464,11 +407,11 @@ fn drawAbout(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
         }
 
         c.nk_layout_row_end(ctx);
-
-        c.nk_layout_row_dynamic(ctx, 28, 1);
-        if (c.nk_button_label(ctx, "Close") != 0) show_about = false;
     }
     c.nk_end(ctx);
+    if (c.nk_window_is_hidden(ctx, "About UsaProject") != 0) {
+        ui_dialog.show_about = false;
+    }
 }
 
 // --- Disk Operations ---
