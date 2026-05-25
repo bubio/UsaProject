@@ -15,6 +15,7 @@ const audio = @import("audio.zig");
 const ui = @import("ui.zig");
 const nfd = @import("nfd.zig");
 const nk = @import("nk.zig");
+const config = @import("config.zig");
 
 const app_icon_rgba = @embedFile("AppIcon128.raw");
 
@@ -87,6 +88,7 @@ export fn init() void {
     setupDataDir();
 
     cz.pccore_init_config();
+    config.load();
     if (parsed_opts) |opts| {
         if (opts.model) |m| cz.np2_set_model(m.ptr);
     }
@@ -178,6 +180,7 @@ fn setupDataDir() void {
     };
     std.debug.print(">>> data dir: {s}\n", .{dir});
     cz.np2_set_datadir(dir.ptr);
+    config.setDataDir(dir);
 }
 
 fn makeBlitShader() sg.Shader {
@@ -285,6 +288,7 @@ export fn frame() void {
 }
 
 export fn cleanup() void {
+    config.save();
     cz.pccore_term();
     nfd.deinit();
     ui.shutdown();
