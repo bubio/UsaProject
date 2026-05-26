@@ -154,8 +154,8 @@ fn drawConfigure(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
         c.nk_label(ctx, "CPU", c.NK_TEXT_LEFT);
         c.nk_layout_row_dynamic(ctx, 22, 2);
         for (base_clocks, 0..) |clk, i| {
-            if (c.nk_option_label(ctx, base_clock_labels[i],
-                if (cfg.baseclock == clk) @as(c_int, 1) else @as(c_int, 0)) != 0)
+            const was: c_int = if (cfg.baseclock == clk) 1 else 0;
+            if (c.nk_option_label(ctx, base_clock_labels[i], was) != 0 and was == 0)
                 cfg.baseclock = clk;
         }
         c.nk_layout_row_begin(ctx, c.NK_STATIC, 22, 2);
@@ -179,8 +179,8 @@ fn drawConfigure(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
         c.nk_layout_row_dynamic(ctx, 22, 3);
         const cur_model = modelToIdx(cfg.model);
         for (model_labels, 0..) |lbl, i| {
-            if (c.nk_option_label(ctx, lbl,
-                if (cur_model == i) @as(c_int, 1) else @as(c_int, 0)) != 0)
+            const was: c_int = if (cur_model == i) 1 else 0;
+            if (c.nk_option_label(ctx, lbl, was) != 0 and was == 0)
                 cz.np2_set_model(model_names[i]);
         }
 
@@ -283,12 +283,14 @@ fn drawScreenOption(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
         c.nk_layout_row_dynamic(ctx, 18, 1);
         c.nk_label(ctx, "GDC", c.NK_TEXT_LEFT);
         c.nk_layout_row_dynamic(ctx, 22, 2);
-        if (c.nk_option_label(ctx, "uPD7220",
-            if (cfg.uPD72020 == 0) @as(c_int, 1) else @as(c_int, 0)) != 0)
-            cfg.uPD72020 = 0;
-        if (c.nk_option_label(ctx, "uPD72020",
-            if (cfg.uPD72020 != 0) @as(c_int, 1) else @as(c_int, 0)) != 0)
-            cfg.uPD72020 = 1;
+        {
+            const was0: c_int = if (cfg.uPD72020 == 0) 1 else 0;
+            if (c.nk_option_label(ctx, "uPD7220", was0) != 0 and was0 == 0)
+                cfg.uPD72020 = 0;
+            const was1: c_int = if (cfg.uPD72020 != 0) 1 else 0;
+            if (c.nk_option_label(ctx, "uPD72020", was1) != 0 and was1 == 0)
+                cfg.uPD72020 = 1;
+        }
         if (cfg.uPD72020 != prev_gdc) {
             cz.usa_gdc_restorekacmode();
             cz.usa_gdc_alldraw2();
@@ -312,9 +314,8 @@ fn drawScreenOption(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
             else gc_idx = 3;
         }
         for (gc_labels, 0..) |lbl, i| {
-            if (c.nk_option_label(ctx, lbl,
-                if (gc_idx == i) @as(c_int, 1) else @as(c_int, 0)) != 0)
-            {
+            const was: c_int = if (gc_idx == i) 1 else 0;
+            if (c.nk_option_label(ctx, lbl, was) != 0 and was == 0) {
                 cfg.grcg = gc_grcg[i];
                 cfg.color16 = gc_color16[i];
             }

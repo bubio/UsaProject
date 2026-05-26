@@ -157,14 +157,16 @@ ctx.style.checkbox.cursor_hover = c.nk_style_item_color(c.nk_rgb(255, 255, 255))
 ## ラジオボタン
 
 ```zig
-if (c.nk_option_label(ctx, "Option A", if (val == 0) @as(c_int, 1) else @as(c_int, 0)) != 0)
-    val = 0;
-if (c.nk_option_label(ctx, "Option B", if (val == 1) @as(c_int, 1) else @as(c_int, 0)) != 0)
-    val = 1;
+for (labels, 0..) |lbl, i| {
+    const was: c_int = if (cur_idx == i) 1 else 0;
+    if (c.nk_option_label(ctx, lbl, was) != 0 and was == 0)
+        cur_idx = i;
+}
 ```
 
 - 戻り値は**現在の active 状態**（クリックされたかどうかではない）
-- 選択中のラジオボタンは常に 1 を返すので、対応する値を毎フレーム書き込んでも問題ない
+- 選択中のラジオボタンは常に 1 を返す → **`was == 0` のガードが必須**
+- ガードなしだと、選択済みオプションが毎フレーム値を上書きし、それより前のオプションをクリックしても反映されない
 
 ## コンボボックス
 
