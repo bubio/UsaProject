@@ -278,6 +278,8 @@ fn drawScreenOption(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
     prepareDialog(ctx, "Screen Option", bounds, &reopen_screen_opt);
 
     if (c.nk_begin(ctx, "Screen Option", bounds, dialog_flags) != 0) {
+        // --- GDC ---
+        const prev_gdc = cfg.uPD72020;
         c.nk_layout_row_dynamic(ctx, 18, 1);
         c.nk_label(ctx, "GDC", c.NK_TEXT_LEFT);
         c.nk_layout_row_dynamic(ctx, 22, 2);
@@ -287,7 +289,14 @@ fn drawScreenOption(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
         if (c.nk_option_label(ctx, "uPD72020",
             if (cfg.uPD72020 != 0) @as(c_int, 1) else @as(c_int, 0)) != 0)
             cfg.uPD72020 = 1;
+        if (cfg.uPD72020 != prev_gdc) {
+            cz.usa_gdc_restorekacmode();
+            cz.usa_gdc_alldraw2();
+        }
 
+        // --- Graphic Charger ---
+        const prev_grcg = cfg.grcg;
+        const prev_color16 = cfg.color16;
         c.nk_layout_row_dynamic(ctx, 6, 1);
         c.nk_spacing(ctx, 1);
         c.nk_layout_row_dynamic(ctx, 18, 1);
@@ -310,7 +319,13 @@ fn drawScreenOption(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
                 cfg.color16 = gc_color16[i];
             }
         }
+        if (cfg.grcg != prev_grcg or cfg.color16 != prev_color16) {
+            cz.usa_gdc_alldraw2();
+        }
 
+        // --- Skipline ---
+        const prev_skipline = cfg.skipline;
+        const prev_skiplight = cfg.skiplight;
         c.nk_layout_row_dynamic(ctx, 6, 1);
         c.nk_spacing(ctx, 1);
         c.nk_layout_row_dynamic(ctx, 22, 1);
@@ -328,13 +343,24 @@ fn drawScreenOption(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
             cfg.skiplight = @intFromFloat(sl_f);
             c.nk_layout_row_end(ctx);
         }
+        if (cfg.skipline != prev_skipline or cfg.skiplight != prev_skiplight) {
+            cz.usa_pal_makeskiptable();
+            cz.scrndraw_redraw();
+        }
 
+        // --- Monochrome (LCD mode bit 0) ---
+        const prev_lcd = cfg.LCD_MODE;
         c.nk_layout_row_dynamic(ctx, 22, 1);
-        var lcd_v: c_int = if (cfg.LCD_MODE != 0) 1 else 0;
-        _ = c.nk_checkbox_label(ctx, "LCD mode", &lcd_v);
-        cfg.LCD_MODE = @intCast(@as(u32, @intCast(lcd_v)));
+        var lcd_v: c_int = if (cfg.LCD_MODE & 1 != 0) 1 else 0;
+        _ = c.nk_checkbox_label(ctx, "Monochrome", &lcd_v);
+        cfg.LCD_MODE = (cfg.LCD_MODE & 0xfe) | @as(u8, @intCast(@as(u32, @intCast(lcd_v)) & 1));
+        if (cfg.LCD_MODE != prev_lcd) {
+            cz.usa_pal_makelcdpal();
+            cz.scrndraw_redraw();
+        }
     }
     c.nk_end(ctx);
+
     _ = handleClose(ctx, "Screen Option", &show_screen_opt);
 }
 
@@ -350,11 +376,11 @@ fn drawSoundMixer(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
     const dx = (@as(f32, @floatFromInt(win_w)) - dw) / 2.0;
     const dy = (@as(f32, @floatFromInt(win_h)) - dh) / 2.0;
     const bounds = c.nk_rect(dx, dy, dw, dh);
+    const cfg = &cz.c.np2cfg;
 
     prepareDialog(ctx, "Sound Mixer", bounds, &reopen_sound_mixer);
 
     if (c.nk_begin(ctx, "Sound Mixer", bounds, dialog_flags) != 0) {
-        const cfg = &cz.c.np2cfg;
         const SliderEntry = struct { label: [*:0]const u8, val: *u8 };
         var entries = [_]SliderEntry{
             .{ .label = "FM", .val = &cfg.vol_fm },
@@ -387,5 +413,6 @@ fn drawSoundMixer(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
         }
     }
     c.nk_end(ctx);
+
     _ = handleClose(ctx, "Sound Mixer", &show_sound_mixer);
 }

@@ -11,6 +11,7 @@ pub const c = @cImport({
     @cDefine("NK_INCLUDE_FONT_BAKING", "");
     @cDefine("NK_INCLUDE_DEFAULT_FONT", "");
     @cDefine("NK_INCLUDE_STANDARD_VARARGS", "");
+    @cDefine("NK_BUTTON_TRIGGER_ON_RELEASE", "");
     @cInclude("nuklear.h");
     @cInclude("sokol_nuklear.h");
 });

@@ -78,7 +78,19 @@ pub fn shutdown() void {
     }
 }
 
+var style_patched: bool = false;
+
+fn clearMouseClick(ctx: *c.nk_context) void {
+    ctx.input.mouse.buttons[c.NK_BUTTON_LEFT].clicked = 0;
+    ctx.input.mouse.buttons[c.NK_BUTTON_LEFT].down = 0;
+}
+
 pub fn draw(ctx: *c.nk_context, win_w: u32, win_h: u32, st: State) void {
+    if (!style_patched) {
+        style_patched = true;
+        ctx.style.checkbox.cursor_normal = c.nk_style_item_color(c.nk_rgb(220, 220, 220));
+        ctx.style.checkbox.cursor_hover = c.nk_style_item_color(c.nk_rgb(255, 255, 255));
+    }
     drawMenuBar(ctx, win_w);
     drawStatusBar(ctx, win_w, win_h, st);
     if (ui_dialog.show_about) drawAbout(ctx, win_w, win_h);
@@ -151,6 +163,7 @@ fn menuEmulate(ctx: *c.nk_context) void {
         }
         if (c.nk_menu_item_label(ctx, "Configure...", c.NK_TEXT_LEFT) != 0) {
             ui_dialog.openConfigure();
+            clearMouseClick(ctx);
         }
         c.nk_layout_row_dynamic(ctx, 4, 1);
         c.nk_spacing(ctx, 1);
@@ -241,6 +254,7 @@ fn menuScreen(ctx: *c.nk_context, menu_h: f32) void {
         c.nk_layout_row_dynamic(ctx, 22, 1);
         if (c.nk_menu_item_label(ctx, "Screen option...", c.NK_TEXT_LEFT) != 0) {
             ui_dialog.openScreenOption();
+            clearMouseClick(ctx);
         }
 
         c.nk_menu_end(ctx);
@@ -288,8 +302,10 @@ fn menuDevice(ctx: *c.nk_context, menu_h: f32) void {
         c.nk_layout_row_dynamic(ctx, 4, 1);
         c.nk_spacing(ctx, 1);
         c.nk_layout_row_dynamic(ctx, 22, 1);
-        if (c.nk_menu_item_label(ctx, "Sound option...", c.NK_TEXT_LEFT) != 0)
+        if (c.nk_menu_item_label(ctx, "Sound option...", c.NK_TEXT_LEFT) != 0) {
             ui_dialog.openSoundMixer();
+            clearMouseClick(ctx);
+        }
 
         c.nk_menu_end(ctx);
     }
@@ -309,7 +325,10 @@ fn menuOther(ctx: *c.nk_context) void {
         c.nk_layout_row_dynamic(ctx, 4, 1);
         c.nk_spacing(ctx, 1);
         c.nk_layout_row_dynamic(ctx, 22, 1);
-        if (c.nk_menu_item_label(ctx, "About...", c.NK_TEXT_LEFT) != 0) ui_dialog.openAbout();
+        if (c.nk_menu_item_label(ctx, "About...", c.NK_TEXT_LEFT) != 0) {
+            ui_dialog.openAbout();
+            clearMouseClick(ctx);
+        }
         c.nk_menu_end(ctx);
     }
 }

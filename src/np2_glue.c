@@ -16,6 +16,8 @@
 #include <stdarg.h>
 #include <pccore.h>
 #include <vram/scrndraw.h>
+#include <vram/palettes.h>
+#include <io/iocore.h>
 #include <fdd/diskdrv.h>
 #include <fdd/sxsi.h>
 #include <errno.h>
@@ -401,6 +403,13 @@ void pccore_init_config(void) {
     np2cfg.vol_pcm = 100;
     np2cfg.vol_rhythm = 100;
     np2cfg.vol_midi = 100;
+    np2cfg.DISPSYNC = 1;
+    np2cfg.realpal = 32;
+    np2cfg.skiplight = 64;
+    np2cfg.grcg = 2;
+    np2cfg.color16 = 1;
+    np2cfg.BG_COLOR = 0x000000;
+    np2cfg.FG_COLOR = 0xffffff;
     strcpy(np2cfg.model, "VX");
     np2cfg.usebios = 1;
     np2cfg.fddequip = 0x0f; // enable all 4 FDD slots
@@ -466,3 +475,9 @@ void usa_beep_setvol(unsigned vol) {
     np2cfg.BEEP_VOL = (UINT8)vol;
     beep_setvol(vol);
 }
+
+void usa_pal_makelcdpal(void) { pal_makelcdpal(); }
+void usa_pal_makeskiptable(void) { pal_makeskiptable(); }
+void usa_gdc_restorekacmode(void) { gdc_restorekacmode(); }
+void usa_gdc_alldraw2(void) { gdcs.grphdisp |= GDCSCRN_ALLDRAW2; }
+
