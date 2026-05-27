@@ -431,6 +431,17 @@ void pccore_init_config(void) {
     np2cfg.memsw[3] = 0x08;
 }
 
+void usa_apply_config_overrides(void) {
+    np2cfg.SOUND_SW = 0x06;
+    np2cfg.snd86opt = 0x1d;
+    np2cfg.snd26opt = 0x10;
+    np2cfg.memsw[3] |= 0x08;
+    np2cfg.BEEP_VOL = 3;
+    np2cfg.delayms = 150;
+    np2cfg.multiple = 4;
+    np2cfg.fddequip = 0x0f;
+}
+
 void np2_set_model(const char *name) {
     if (!name || !name[0]) return;
     // np2cfg.model is OEMCHAR[8]; truncate-safe copy with NUL.

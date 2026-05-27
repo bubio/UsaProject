@@ -125,8 +125,8 @@ const snd_board_labels = [_][*:0]const u8{
     "Disable",      "PC-9801-26K",  "PC-9801-86",
     "26K + 86",     "86 + Chibi-oto", "PC-9801-118", "AMD-98",
 };
-const mem_vals = [_]u16{ 0, 1, 3, 7, 13 };
-const mem_labels_arr = [_][*:0]const u8{ "640KB", "1.6MB", "3.6MB", "7.6MB", "13.6MB" };
+const mem_vals = [_]u16{ 0, 1, 3, 7, 13, 16, 32, 64, 128 };
+const mem_labels_arr = [_][*:0]const u8{ "640KB", "1.6MB", "3.6MB", "7.6MB", "13.6MB", "16.6MB", "32.6MB", "64.6MB", "128.6MB" };
 
 const multipliers_labels = blk: {
     var labels: [multipliers.len][*:0]const u8 = undefined;
@@ -205,12 +205,13 @@ fn drawConfigure(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
         c.nk_layout_row_push(ctx, 110);
         c.nk_label(ctx, "Memory:", c.NK_TEXT_LEFT);
         c.nk_layout_row_push(ctx, 200);
-        var mem_idx: usize = 0;
+        var mem_idx: usize = mem_vals.len - 1;
         for (mem_vals, 0..) |v, i| {
             if (cfg.EXTMEM == v) { mem_idx = i; break; }
+            if (v > cfg.EXTMEM) { mem_idx = if (i > 0) i - 1 else 0; break; }
         }
         const new_mem: usize = @intCast(c.nk_combo(ctx, &mem_labels_arr,
-            mem_labels_arr.len, @intCast(mem_idx), 22, c.nk_vec2(200, 130)));
+            mem_labels_arr.len, @intCast(mem_idx), 22, c.nk_vec2(200, 200)));
         cfg.EXTMEM = mem_vals[new_mem];
         c.nk_layout_row_end(ctx);
 

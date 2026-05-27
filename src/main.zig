@@ -88,6 +88,8 @@ export fn init() void {
     setupDataDir();
 
     cz.pccore_init_config();
+    cz.c.pccore_setdefault();
+    cz.usa_apply_config_overrides();
     config.load();
     if (parsed_opts) |opts| {
         if (opts.model) |m| cz.np2_set_model(m.ptr);
