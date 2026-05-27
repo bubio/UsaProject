@@ -52,6 +52,7 @@ var fb_rgba: [FB_WIDTH * FB_HEIGHT]u32 = undefined;
 var parsed_opts: ?cli.Options = null;
 var last_emu_ns: i128 = 0;
 var skip_counter: u32 = 0;
+const nowait_frames_per_tick: u32 = 16;
 var draw_fps: f32 = 0.0;
 var last_draw_ns: i128 = 0;
 
@@ -239,15 +240,22 @@ fn makeBlitShader() sg.Shader {
 
 export fn frame() void {
     const now: i128 = platform.os.monotonicNs();
-    const decision = scheduler.decide(now, last_emu_ns);
-    last_emu_ns = decision.new_last_ns;
+    const nowait = cz.usa_get_nowait() != 0;
+    const frames: u32 = if (nowait) blk: {
+        last_emu_ns = now;
+        break :blk nowait_frames_per_tick;
+    } else blk: {
+        const decision = scheduler.decide(now, last_emu_ns);
+        last_emu_ns = decision.new_last_ns;
+        break :blk decision.frames;
+    };
 
-    if (decision.frames > 0) {
+    if (frames > 0) {
         const draw_skip = cz.usa_get_draw_skip();
         var i: u32 = 0;
-        while (i < decision.frames) : (i += 1) {
+        while (i < frames) : (i += 1) {
             const should_draw = blk: {
-                if (draw_skip <= 1) break :blk true; // Auto(0) or Full(1): always draw
+                if (draw_skip <= 1) break :blk true;
                 skip_counter += 1;
                 if (skip_counter >= draw_skip) {
                     skip_counter = 0;
