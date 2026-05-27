@@ -51,6 +51,9 @@ var state: State = .{};
 var fb_rgba: [FB_WIDTH * FB_HEIGHT]u32 = undefined;
 var parsed_opts: ?cli.Options = null;
 var last_emu_ns: i128 = 0;
+var skip_counter: u32 = 0;
+var draw_fps: f32 = 0.0;
+var last_draw_ns: i128 = 0;
 
 // 音声バッファ（Zig側で変換用に使用）
 var audio_buffer: [4096 * 2]f32 = undefined;
@@ -240,16 +243,29 @@ export fn frame() void {
     last_emu_ns = decision.new_last_ns;
 
     if (decision.frames > 0) {
-        // Catch-up frames: advance the emulator without triggering a redraw.
-        var i: u32 = 1;
+        const draw_skip = cz.usa_get_draw_skip();
+        var i: u32 = 0;
         while (i < decision.frames) : (i += 1) {
-            cz.pccore_exec(false);
+            const should_draw = blk: {
+                if (draw_skip <= 1) break :blk true; // Auto(0) or Full(1): always draw
+                skip_counter += 1;
+                if (skip_counter >= draw_skip) {
+                    skip_counter = 0;
+                    break :blk true;
+                }
+                break :blk false;
+            };
+            cz.pccore_exec(should_draw);
             cz.sound_sync();
+            if (should_draw) {
+                cz.scrndraw_redraw();
+                const draw_dt_ns = now - last_draw_ns;
+                if (draw_dt_ns > 0) {
+                    draw_fps = @floatCast(1_000_000_000.0 / @as(f64, @floatFromInt(draw_dt_ns)));
+                }
+                last_draw_ns = now;
+            }
         }
-        // Final frame: this is the one whose framebuffer we display.
-        cz.pccore_exec(true);
-        cz.sound_sync();
-        cz.scrndraw_redraw();
     }
 
     pixel.rgb565BufferToRgba8(&fb_rgba, cz.pc98_framebuffer[0 .. FB_WIDTH * FB_HEIGHT]);
@@ -260,8 +276,7 @@ export fn frame() void {
 
     // Update UI overlay state.
     cz.usa_lamp_tick();
-    const dt = sapp.frameDuration();
-    const fps: f32 = if (dt > 0.0) @floatCast(1.0 / dt) else 0.0;
+    const fps: f32 = draw_fps;
 
     const nk_ctx = nk.newFrame();
     const cur_w: u32 = @intCast(sapp.width());
