@@ -206,8 +206,17 @@ pub fn handleEvent(ev: [*c]const sapp.Event) callconv(.c) void {
         return;
     }
 
-    // Let Nuklear handle UI events (menu bar, status bar, dialogs)
-    if (nk.handleEvent(@ptrCast(ev))) return;
+    // Feed every event to Nuklear so it can track mouse position / clicks.
+    // Only let Nuklear *consume* mouse events (menu bar, status bar, dialogs);
+    // keyboard events always fall through to the emulator so that typing
+    // works regardless of where the mouse cursor is.
+    const nk_wants = nk.handleEvent(@ptrCast(ev));
+    switch (event.type) {
+        .KEY_DOWN, .KEY_UP => {},
+        else => {
+            if (nk_wants) return;
+        },
+    }
 
     // Uncaptured click in emulator area → capture mouse
     if (event.type == .MOUSE_DOWN) {

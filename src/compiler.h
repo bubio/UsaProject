@@ -17,7 +17,13 @@
 #define RESOURCE_US
 #define NP2_SIZE_VGA
 
-#define GETTICK() (0) 
+#include <time.h>
+static inline uint32_t _usa_gettick_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint32_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+}
+#define GETTICK() _usa_gettick_ms()
 
 #ifndef _snprintf
 #define _snprintf snprintf

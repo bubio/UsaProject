@@ -423,7 +423,7 @@ void pccore_init_config(void) {
     // ints[2]={0,0x04,0x0c,0x08} table) | bit4(=1 → enable FM interrupt).
     // Without IRQ12 selected, opna_timer falls back to IRQ3 (s_irqtable[0])
     // and most FM-driven music engines stall or fall back to BEEP.
-    np2cfg.snd86opt = 0x1d;
+    np2cfg.snd86opt = 0x1f;  // bit1=1 → load sound BIOS ROM
     np2cfg.snd26opt = 0x10;
 
     // MSW4 bit 3 = sound board present (拡張ボード → サウンドボード → 使う)
@@ -433,7 +433,10 @@ void pccore_init_config(void) {
 
 void usa_apply_config_overrides(void) {
     np2cfg.SOUND_SW = 0x06;
-    np2cfg.snd86opt = 0x1d;
+    // snd86opt bit 1 = load sound BIOS ROM into 0xCC000. Without this the
+    // BIOS sees MSW4 bit 3 (sound board present) but finds empty ROM space
+    // at CC00:0000 and crashes BASIC after the boot banner.
+    np2cfg.snd86opt = 0x1f;
     np2cfg.snd26opt = 0x10;
     np2cfg.memsw[3] |= 0x08;
     np2cfg.BEEP_VOL = 3;
