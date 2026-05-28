@@ -21,6 +21,9 @@
 #include <fdd/diskdrv.h>
 #include <fdd/sxsi.h>
 #include <errno.h>
+#include <math.h>
+#include <signal.h>
+#include <unistd.h>
 
 // BOOL is int on Windows but bool elsewhere — wrap to expose a stable int ABI to Zig.
 void usa_pccore_exec(int draw) { pccore_exec((BOOL)(draw != 0)); }
@@ -85,6 +88,10 @@ void scrnmng_updatefsres(void) {}
 // Sound management stubs
 #include <soundmng.h>
 #include <sound/sound.h>
+#include <sound/opngen.h>
+#include <sound/opngencfg.h>
+#include <sound/psggen.h>
+extern PSGGENCFG psggencfg;
 
 extern void zig_audio_push(const int32_t* pcm, uint32_t count);
 extern uint32_t zig_audio_writable(void);
@@ -114,25 +121,116 @@ void soundmng_reset(void) {}
 void soundmng_play(void) {}
 void soundmng_stop(void) {}
 
+// ---- Audio capture / autotest hooks (set via usa_audio_capture_*) ----
+//
+// usa_audio_capture_open opens a WAV file at the given path and writes a
+// 44-byte placeholder header; subsequent soundmng_sync calls append the raw
+// 16-bit stereo PCM. usa_audio_capture_close patches the data sizes in the
+// header. The output is a plain RIFF/WAVE PCM file we can analyze offline.
+//
+// usa_audio_autotest toggles np2cfg.vol_fm / vol_ssg between 0 and 128 on a
+// fixed timer driven from soundmng_sync (one toggle per ~1s of generated
+// audio). Combined with capture, this lets us correlate vol_* with PCM
+// amplitude without any UI interaction.
+static FILE *g_cap_file = NULL;
+static uint32_t g_cap_bytes = 0;
+static int g_cap_autotest = 0;
+static uint32_t g_cap_autotest_samples = 0;
+static int g_cap_autotest_phase = 0;
+
+static void wav_write_le16(FILE *f, uint16_t v) {
+    uint8_t b[2] = { (uint8_t)(v & 0xff), (uint8_t)(v >> 8) };
+    fwrite(b, 1, 2, f);
+}
+static void wav_write_le32(FILE *f, uint32_t v) {
+    uint8_t b[4] = { (uint8_t)v, (uint8_t)(v >> 8), (uint8_t)(v >> 16), (uint8_t)(v >> 24) };
+    fwrite(b, 1, 4, f);
+}
+
+void usa_audio_capture_close(void);
+static void capture_sig_handler(int sig) {
+    (void)sig;
+    usa_audio_capture_close();
+    _exit(0);
+}
+
+int usa_audio_capture_open(const char *path, int autotest) {
+    if (g_cap_file) return 0;
+    FILE *f = fopen(path, "wb");
+    if (!f) { printf(">>> audio capture: failed to open %s\n", path); return 0; }
+    // Patch WAV header on SIGTERM/SIGINT so external scripts can stop us cleanly.
+    signal(SIGINT,  capture_sig_handler);
+    signal(SIGTERM, capture_sig_handler);
+    // WAV header: RIFF + fmt(16) + data; sample rate fixed at 44100 Hz, 2ch, 16-bit
+    fwrite("RIFF", 1, 4, f); wav_write_le32(f, 0);     // ChunkSize (patched at close)
+    fwrite("WAVE", 1, 4, f);
+    fwrite("fmt ", 1, 4, f); wav_write_le32(f, 16);    // Subchunk1Size
+    wav_write_le16(f, 1);                              // AudioFormat = PCM
+    wav_write_le16(f, 2);                              // NumChannels = 2
+    wav_write_le32(f, 44100);                          // SampleRate
+    wav_write_le32(f, 44100 * 2 * 2);                  // ByteRate
+    wav_write_le16(f, 4);                              // BlockAlign
+    wav_write_le16(f, 16);                             // BitsPerSample
+    fwrite("data", 1, 4, f); wav_write_le32(f, 0);     // Subchunk2Size (patched)
+    g_cap_file = f;
+    g_cap_bytes = 0;
+    g_cap_autotest = autotest;
+    g_cap_autotest_samples = 0;
+    g_cap_autotest_phase = 0;
+    printf(">>> audio capture: writing to %s%s\n", path, autotest ? " (autotest mode)" : "");
+    return 1;
+}
+
+void usa_audio_capture_close(void) {
+    if (!g_cap_file) return;
+    uint32_t data_size = g_cap_bytes;
+    uint32_t riff_size = 36 + data_size;
+    fseek(g_cap_file, 4, SEEK_SET);  wav_write_le32(g_cap_file, riff_size);
+    fseek(g_cap_file, 40, SEEK_SET); wav_write_le32(g_cap_file, data_size);
+    fclose(g_cap_file);
+    g_cap_file = NULL;
+    printf(">>> audio capture: closed, %u PCM bytes written\n", data_size);
+}
+
 void soundmng_sync(void) {
-    // sound_sync() invokes this every 100 generated samples (~2.3ms), but each
-    // pcmlock/unlock cycle produces a full chunk (~93ms of audio). Pushing on
-    // every call floods the audio FIFO ~40x faster than it drains, so most
-    // frames get dropped and playback turns into stuttering bursts.
-    //
-    // Throttle by checking sokol's writable FIFO space: skip until there's
-    // room for a full chunk. The CPU keeps advancing in the meantime;
-    // streamprepare() called from sound_sync() continues filling sndstream
-    // until it's full (remain → 0), then idles. When we finally lock, the
-    // buffer already holds ~93ms of correctly-paced audio and we push that.
     if (g_sound_frame_samples == 0) return;
     if (zig_audio_writable() < g_sound_frame_samples) return;
 
     const SINT32 *pcm = sound_pcmlock();
-    if (pcm) {
-        zig_audio_push(pcm, g_sound_frame_samples);
-        sound_pcmunlock(pcm);
+    if (!pcm) return;
+
+    // Autotest: cycle vol_fm/vol_ssg every ~1s of audio (44100 frames).
+    if (g_cap_autotest) {
+        g_cap_autotest_samples += g_sound_frame_samples;
+        if (g_cap_autotest_samples >= 44100) {
+            g_cap_autotest_samples = 0;
+            g_cap_autotest_phase = (g_cap_autotest_phase + 1) & 3;
+            // 4 phases: (128,128) (0,128) (128,0) (0,0)
+            np2cfg.vol_fm  = (g_cap_autotest_phase & 1) ? 0 : 128;
+            np2cfg.vol_ssg = (g_cap_autotest_phase & 2) ? 0 : 128;
+            extern void fmboard_updatevolume(void);
+            fmboard_updatevolume();
+            printf(">>> autotest phase=%d  vol_fm=%u vol_ssg=%u opncfg.fmvol=%d psg[15]=%d\n",
+                g_cap_autotest_phase, np2cfg.vol_fm, np2cfg.vol_ssg, opncfg.fmvol, psggencfg.volume[15]);
+            fflush(stdout);
+        }
     }
+
+    // Convert SINT32 stereo to 16-bit LE and append to the WAV.
+    if (g_cap_file) {
+        UINT n = g_sound_frame_samples * 2;  // stereo samples
+        for (UINT i = 0; i < n; i++) {
+            SINT32 v = pcm[i];
+            if (v > 32767) v = 32767;
+            else if (v < -32768) v = -32768;
+            uint8_t b[2] = { (uint8_t)(v & 0xff), (uint8_t)((v >> 8) & 0xff) };
+            fwrite(b, 1, 2, g_cap_file);
+        }
+        g_cap_bytes += n * 2;
+    }
+
+    zig_audio_push(pcm, g_sound_frame_samples);
+    sound_pcmunlock(pcm);
 }
 void soundmng_setreverse(BOOL reverse) { (void)reverse; }
 BRESULT soundmng_pcmplay(UINT num, BOOL loop) { (void)num; (void)loop; return FAILURE; }
@@ -396,13 +494,15 @@ void pccore_init_config(void) {
     np2cfg.SOUND_SW = 0x06; // SOUNDID_PC_9801_86_26K
     np2cfg.usefmgen = 0;
     for (int i=0; i<6; i++) np2cfg.vol14[i] = 100;
+    // Match np2kai's pccore_setdefault(): master 100, per-channel 64,
+    // MIDI 128. Slider range in Sound Mixer is 0..128.
     np2cfg.vol_master = 100;
-    np2cfg.vol_fm = 100;
-    np2cfg.vol_ssg = 100;
-    np2cfg.vol_adpcm = 100;
-    np2cfg.vol_pcm = 100;
-    np2cfg.vol_rhythm = 100;
-    np2cfg.vol_midi = 100;
+    np2cfg.vol_fm = 64;
+    np2cfg.vol_ssg = 64;
+    np2cfg.vol_adpcm = 64;
+    np2cfg.vol_pcm = 64;
+    np2cfg.vol_rhythm = 64;
+    np2cfg.vol_midi = 128;
     np2cfg.DISPSYNC = 1;
     np2cfg.realpal = 32;
     np2cfg.skiplight = 64;
@@ -443,6 +543,12 @@ void usa_apply_config_overrides(void) {
     np2cfg.delayms = 150;
     np2cfg.multiple = 4;
     np2cfg.fddequip = 0x0f;
+    // pccore_setdefault() ships with usefmgen=1, which routes OPNA audio
+    // through fmgen (OPNA_Mix) instead of opngen_getpcm/psggen_getpcm. The
+    // fmgen path uses its own per-instance volume state and does NOT respect
+    // updates to opncfg.fmvol or psggencfg.volume[] — so live Sound Mixer
+    // slider changes have no audible effect. Pin the legacy path on.
+    np2cfg.usefmgen = 0;
 }
 
 void np2_set_model(const char *name) {
@@ -488,6 +594,17 @@ void    usa_set_keyboard(uint8_t v)  { np2oscfg.KEYBOARD = v; }
 void usa_beep_setvol(unsigned vol) {
     np2cfg.BEEP_VOL = (UINT8)vol;
     beep_setvol(vol);
+}
+
+// np2kai already exposes fmboard_updatevolume(), which sets all chip volumes
+// (FM/PSG/ADPCM/PCM/Rhythm/OPL + FMGEN variants) from np2cfg.vol_* and also
+// calls adpcm_update / pcm86gen_update / rhythm_update so changes take effect
+// on the next generated sample. Slider edits in the Zig UI write into
+// np2cfg.vol_* but the chip generators latch their own scaled volumes; this
+// glue wraps the existing core function so the dialog code stays in Zig.
+void fmboard_updatevolume(void);
+void usa_sound_apply_volumes(void) {
+    fmboard_updatevolume();
 }
 
 void usa_pal_makelcdpal(void) { pal_makelcdpal(); }

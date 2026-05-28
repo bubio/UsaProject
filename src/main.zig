@@ -100,7 +100,12 @@ export fn init() void {
     }
     cz.pccore_init();
     cz.pccore_reset();
-    if (parsed_opts) |opts| insertDisks(opts);
+    if (parsed_opts) |opts| {
+        insertDisks(opts);
+        if (opts.audio_capture) |p| {
+            _ = cz.usa_audio_capture_open(p.ptr, if (opts.audio_autotest) 1 else 0);
+        }
+    }
 
     state.image = sg.makeImage(.{
         .width = FB_WIDTH,
@@ -313,6 +318,7 @@ export fn frame() void {
 }
 
 export fn cleanup() void {
+    cz.usa_audio_capture_close();
     config.save();
     cz.pccore_term();
     nfd.deinit();

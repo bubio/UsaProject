@@ -11,9 +11,12 @@ pub const Options = struct {
     model: ?[:0]const u8 = null,
     disks: []Disk = &.{},
     help: bool = false,
+    audio_capture: ?[:0]const u8 = null,
+    audio_autotest: bool = false,
 
     pub fn deinit(self: *Options, allocator: std.mem.Allocator) void {
         if (self.model) |m| allocator.free(m);
+        if (self.audio_capture) |p| allocator.free(p);
         for (self.disks) |d| allocator.free(d.path);
         allocator.free(self.disks);
     }
@@ -105,6 +108,20 @@ pub fn parse(allocator: std.mem.Allocator, args: []const []const u8) ParseError!
             const v = a["--model=".len..];
             if (v.len > model_max_len) return error.ModelTooLong;
             opts.model = try allocator.dupeZ(u8, v);
+            continue;
+        }
+        if (std.mem.eql(u8, a, "--audio-capture")) {
+            i += 1;
+            if (i >= args.len) return error.MissingValue;
+            opts.audio_capture = try allocator.dupeZ(u8, args[i]);
+            continue;
+        }
+        if (std.mem.startsWith(u8, a, "--audio-capture=")) {
+            opts.audio_capture = try allocator.dupeZ(u8, a["--audio-capture=".len..]);
+            continue;
+        }
+        if (std.mem.eql(u8, a, "--audio-autotest")) {
+            opts.audio_autotest = true;
             continue;
         }
         if (std.mem.startsWith(u8, a, "-")) {

@@ -392,14 +392,20 @@ fn drawSoundMixer(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
             .{ .label = "Rhythm", .val = &cfg.vol_rhythm },
         };
 
+        var changed = false;
         for (&entries) |*entry| {
             c.nk_layout_row_begin(ctx, c.NK_STATIC, 22, 2);
             c.nk_layout_row_push(ctx, 60);
             c.nk_label(ctx, entry.label, c.NK_TEXT_LEFT);
             c.nk_layout_row_push(ctx, 200);
-            var f: f32 = @floatFromInt(entry.val.*);
+            const before = entry.val.*;
+            var f: f32 = @floatFromInt(before);
             f = c.nk_slide_float(ctx, 0, f, 128, 1);
-            entry.val.* = @intFromFloat(f);
+            const after: u8 = @intFromFloat(f);
+            if (after != before) {
+                entry.val.* = after;
+                changed = true;
+            }
             c.nk_layout_row_end(ctx);
         }
 
@@ -412,7 +418,9 @@ fn drawSoundMixer(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
             cfg.vol_adpcm = 64;
             cfg.vol_pcm = 64;
             cfg.vol_rhythm = 64;
+            changed = true;
         }
+        if (changed) cz.usa_sound_apply_volumes();
     }
     c.nk_end(ctx);
 

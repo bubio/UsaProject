@@ -28,3 +28,23 @@ PC-98エミュレーターの開発プロジェクト。NP2kaiのコアをベー
 - Zigのビルドシステム（build.zig）を活用して依存関係を管理し、NP2kaiコアも統合してビルドする。
 - **Nuklear GUI の実装パターンは [docs/nuklear-reference.md](docs/nuklear-reference.md) を参照。** メニュー→ダイアログのクリック伝播防止、ウィンドウフラグ、チェックボックス視認性修正など。
 - **OS依存コードは `src/platform/` 配下にまとめる。** OS固有のAPI呼び出し（Win32, POSIX, Cocoa 等）や、`std.os.windows` / `std.posix` / `std.c` を直接触る処理は、`src/platform/{windows,linux,macos}.zig` にそれぞれ実装し、共通インターフェイスとして `src/platform.zig` の `platform.os.*` 経由で呼び出すこと。`src/main.zig` などのアプリ層に `#ifdef` 的な OS 分岐を持ち込まない。
+
+## デバッグ用オーディオキャプチャ
+
+音声まわりの不具合 (音量制御が効かない、ミックス比がおかしい等) を解析する際は、CLI フラグでヘッドレス録音できる。GUI 操作なしで「スライダーが PCM 出力に効いているか」を機械的に検証する用途。
+
+- `--audio-capture <path>` — `sound_pcmlock` が返す生 PCM をそのまま 44.1kHz / 16bit / Stereo の WAV として `<path>` に書き出す。`SIGINT` / `SIGTERM` を送ると WAV ヘッダ (RIFF/data サイズ) をパッチして安全に閉じる。
+- `--audio-autotest` — `--audio-capture` と併用。生成音声 1 秒ごとに 4 フェーズで `np2cfg.vol_fm` / `vol_ssg` を自動巡回:
+  - phase 0: `(128, 128)` 両方 ON
+  - phase 1: `(0,   128)` FM のみ OFF
+  - phase 2: `(128, 0)`   PSG のみ OFF
+  - phase 3: `(0,   0)`   両方 OFF
+
+典型ワークフロー (音楽が鳴るディスクを刺してフェーズ別 RMS を比較):
+
+```sh
+./zig-out/bin/UsaProject path/to/MUSIC.FDI --audio-capture /tmp/cap.wav --audio-autotest &
+PID=$!; sleep 30; kill -INT $PID
+```
+
+解析は `wave` モジュールで読み、`int(t) % 4` で phase を再構築して RMS をフェーズ別に集計する。phase 0 (両 ON) と phase 3 (両 OFF) で RMS に明確な差があればスライダーは機能している。
