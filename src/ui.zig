@@ -7,9 +7,59 @@ const nfd = @import("nfd.zig");
 const nk = @import("nk.zig");
 const c = nk.c;
 const ui_dialog = @import("ui_dialog.zig");
+const platform = @import("platform.zig");
 
 pub const MENU_HEIGHT: u32 = 26;
 pub const STATUS_HEIGHT: u32 = 22;
+
+const FB_WIDTH: u32 = 640;
+const FB_HEIGHT: u32 = 400;
+const CHROME: u32 = MENU_HEIGHT + STATUS_HEIGHT;
+
+// Last scale the user asked for; restored when leaving fullscreen.
+var user_scale: u32 = 1;
+var was_fullscreen: bool = false;
+
+fn applyScale(n: u32) void {
+    platform.os.setWindowSize(FB_WIDTH * n, FB_HEIGHT * n + CHROME);
+}
+
+fn setWindowScale(n: u32) void {
+    user_scale = n;
+    applyScale(n);
+}
+
+// Largest uniform integer multiple that the current window size rounds to.
+fn scaleFor(w: u32, h: u32) u32 {
+    const wn = (w + FB_WIDTH / 2) / FB_WIDTH;
+    const avail: u32 = if (h > CHROME) h - CHROME else 0;
+    const hn = (avail + FB_HEIGHT / 2) / FB_HEIGHT;
+    const n = @min(wn, hn);
+    return if (n < 1) 1 else n;
+}
+
+/// Keep the window pinned to a uniform integer scale. Per-axis native resize
+/// increments still apply during a drag, but they allow the two axes to scale
+/// independently; here we re-unify them. On leaving fullscreen we restore the
+/// scale the user had before, which AppKit does not reliably do on its own.
+pub fn enforceWindowConstraints() void {
+    if (sapp.isFullscreen()) {
+        was_fullscreen = true;
+        return;
+    }
+    if (was_fullscreen) {
+        was_fullscreen = false;
+        applyScale(user_scale);
+        return;
+    }
+    const w: u32 = @intCast(sapp.width());
+    const h: u32 = @intCast(sapp.height());
+    const n = scaleFor(w, h);
+    if (w != FB_WIDTH * n or h != FB_HEIGHT * n + CHROME) {
+        user_scale = n;
+        applyScale(n);
+    }
+}
 
 pub const State = struct {
     fps: f32 = 0.0,
@@ -201,11 +251,18 @@ fn menuHdd(ctx: *c.nk_context) void {
 
 fn menuScreen(ctx: *c.nk_context) void {
     c.nk_layout_row_push(ctx, 60);
-    if (c.nk_menu_begin_label(ctx, "Screen", c.NK_TEXT_LEFT, c.nk_vec2(160, 80)) != 0) {
+    if (c.nk_menu_begin_label(ctx, "Screen", c.NK_TEXT_LEFT, c.nk_vec2(160, 220)) != 0) {
         c.nk_layout_row_dynamic(ctx, 22, 1);
         if (c.nk_menu_item_label(ctx, "FullScreen", c.NK_TEXT_LEFT) != 0) {
             sapp.toggleFullscreen();
         }
+        c.nk_layout_row_dynamic(ctx, 4, 1);
+        c.nk_spacing(ctx, 1);
+        c.nk_layout_row_dynamic(ctx, 22, 1);
+        if (c.nk_menu_item_label(ctx, "Window x1", c.NK_TEXT_LEFT) != 0) setWindowScale(1);
+        if (c.nk_menu_item_label(ctx, "Window x2", c.NK_TEXT_LEFT) != 0) setWindowScale(2);
+        if (c.nk_menu_item_label(ctx, "Window x3", c.NK_TEXT_LEFT) != 0) setWindowScale(3);
+        if (c.nk_menu_item_label(ctx, "Window x4", c.NK_TEXT_LEFT) != 0) setWindowScale(4);
         c.nk_menu_end(ctx);
     }
 }

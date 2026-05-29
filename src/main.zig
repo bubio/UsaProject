@@ -34,9 +34,22 @@ const FB_HEIGHT = 400;
 const WIN_WIDTH = FB_WIDTH;
 const WIN_HEIGHT = FB_HEIGHT + ui.MENU_HEIGHT + ui.STATUS_HEIGHT;
 
-// PC-98 framebuffer quad in NDC: leaves MENU_HEIGHT px at top and STATUS_HEIGHT px at bottom.
-const FB_NDC_TOP: f32 = 1.0 - 2.0 * @as(f32, @floatFromInt(ui.MENU_HEIGHT)) / @as(f32, @floatFromInt(WIN_HEIGHT));
-const FB_NDC_BOT: f32 = 1.0 - 2.0 * @as(f32, @floatFromInt(ui.MENU_HEIGHT + FB_HEIGHT)) / @as(f32, @floatFromInt(WIN_HEIGHT));
+const Viewport = struct { x: i32, y: i32, w: i32, h: i32 };
+
+// PC-98 framebuffer placement: reserve MENU/STATUS bars, then fit the largest
+// integer multiple of 640x400 inside the remaining area and center it.
+fn fbViewport(win_w: u32, win_h: u32) Viewport {
+    const reserved = ui.MENU_HEIGHT + ui.STATUS_HEIGHT;
+    const avail_w = win_w;
+    const avail_h = if (win_h > reserved) win_h - reserved else 0;
+    var n: u32 = @min(avail_w / FB_WIDTH, avail_h / FB_HEIGHT);
+    if (n < 1) n = 1;
+    const fw = FB_WIDTH * n;
+    const fh = FB_HEIGHT * n;
+    const vx: i32 = @intCast((avail_w -| fw) / 2);
+    const vy: i32 = @as(i32, @intCast(ui.MENU_HEIGHT)) + @as(i32, @intCast((avail_h -| fh) / 2));
+    return .{ .x = vx, .y = vy, .w = @intCast(fw), .h = @intCast(fh) };
+}
 
 const State = struct {
     pipeline: sg.Pipeline = .{},
@@ -124,11 +137,12 @@ export fn init() void {
         .mag_filter = .NEAREST,
     });
 
+    // Full-screen quad; placement within the window is done via sg.applyViewport.
     const vertices = [_]f32{
-        -1.0, FB_NDC_TOP, 0.5,   0.0, 0.0,
-         1.0, FB_NDC_TOP, 0.5,   1.0, 0.0,
-         1.0, FB_NDC_BOT, 0.5,   1.0, 1.0,
-        -1.0, FB_NDC_BOT, 0.5,   0.0, 1.0,
+        -1.0,  1.0, 0.5,   0.0, 0.0,
+         1.0,  1.0, 0.5,   1.0, 0.0,
+         1.0, -1.0, 0.5,   1.0, 1.0,
+        -1.0, -1.0, 0.5,   0.0, 1.0,
     };
     state.bindings.vertex_buffers[0] = sg.makeBuffer(.{
         .data = sg.asRange(&vertices),
@@ -160,6 +174,9 @@ export fn init() void {
         .load_action = .CLEAR,
         .clear_value = .{ .r = 0.0, .g = 0.0, .b = 0.0, .a = 1.0 },
     };
+
+    // Lock the window to integer-scaled sizes chosen from the Screen menu.
+    platform.os.lockWindow(FB_WIDTH, FB_HEIGHT, ui.MENU_HEIGHT + ui.STATUS_HEIGHT);
 }
 
 fn insertDisks(opts: cli.Options) void {
@@ -292,6 +309,8 @@ export fn frame() void {
     cz.usa_lamp_tick();
     const fps: f32 = draw_fps;
 
+    ui.enforceWindowConstraints();
+
     const nk_ctx = nk.newFrame();
     const cur_w: u32 = @intCast(sapp.width());
     const cur_h: u32 = @intCast(sapp.height());
@@ -310,6 +329,8 @@ export fn frame() void {
     sg.beginPass(.{ .action = state.pass_action, .swapchain = sglue.swapchain() });
     sg.applyPipeline(state.pipeline);
     sg.applyBindings(state.bindings);
+    const vp = fbViewport(cur_w, cur_h);
+    sg.applyViewport(vp.x, vp.y, vp.w, vp.h, true);
     sg.draw(0, 6, 1);
     nk.render(sapp.width(), sapp.height());
     sg.endPass();
