@@ -152,6 +152,10 @@ pub fn draw(ctx: *c.nk_context, win_w: u32, win_h: u32, st: State) void {
         style_patched = true;
         ctx.style.checkbox.cursor_normal = c.nk_style_item_color(c.nk_rgb(220, 220, 220));
         ctx.style.checkbox.cursor_hover = c.nk_style_item_color(c.nk_rgb(255, 255, 255));
+        // snk_setup() unconditionally loads Nuklear's software cursors, so Nuklear
+        // draws its own arrow on top of the host OS cursor (double cursor). We rely
+        // on the host cursor for menu interaction, so suppress Nuklear's drawn one.
+        c.nk_style_hide_cursor(ctx);
     }
     drawMenuBar(ctx, win_w);
     drawStatusBar(ctx, win_w, win_h, st);
