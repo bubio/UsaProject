@@ -259,6 +259,9 @@ void usa_fddaccess(UINT drv) {
     if (drv < USA_DRIVE_COUNT) g_fdd_access_decay[drv] = USA_DRIVE_DECAY_FRAMES;
 }
 void usa_hddaccess(UINT drv) {
+    // sxsi passes the raw drive id, whose high bits flag SASI/IDE vs SCSI
+    // (0x20). Mask to the drive index so SCSI access lights its lamp too.
+    drv &= 0x0f;
     if (drv < USA_DRIVE_COUNT) g_hdd_access_decay[drv] = USA_DRIVE_DECAY_FRAMES;
 }
 

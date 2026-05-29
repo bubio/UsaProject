@@ -66,6 +66,7 @@ pub const State = struct {
     fps: f32 = 0.0,
     cpu_mhz: f32 = 0.0,
     fdd_access: [4]bool = .{ false, false, false, false },
+    hdd_access: [4]bool = .{ false, false, false, false },
     model: []const u8 = "",
 };
 
@@ -307,6 +308,10 @@ fn drawStatusBar(ctx: *c.nk_context, win_w: u32, win_h: u32, st: State) void {
     const bounds = c.nk_rect(0, y, w, h);
 
     c.nk_window_set_bounds(ctx, "StatusBar", bounds);
+    // Inset the content from the window edges so the model text and FPS readout
+    // are not flush against the left/right borders.
+    _ = c.nk_style_push_vec2(ctx, &ctx.style.window.padding, c.nk_vec2(12, 2));
+    defer _ = c.nk_style_pop_vec2(ctx);
     if (c.nk_begin(ctx, "StatusBar", bounds, c.NK_WINDOW_NO_SCROLLBAR) != 0) {
         c.nk_layout_row_template_begin(ctx, h - 4);
         c.nk_layout_row_template_push_static(ctx, 180);
@@ -318,7 +323,7 @@ fn drawStatusBar(ctx: *c.nk_context, win_w: u32, win_h: u32, st: State) void {
         const mline = std.fmt.bufPrintZ(&mbuf, "{s}  {d:.1}MHz", .{ st.model, st.cpu_mhz }) catch "?";
         c.nk_label(ctx, mline.ptr, c.NK_TEXT_LEFT);
 
-        drawFddLamps(ctx, st.fdd_access);
+        drawDriveLamps(ctx, st.fdd_access, st.hdd_access);
 
         var fbuf: [16]u8 = undefined;
         const fline = std.fmt.bufPrintZ(&fbuf, "{d:.1} FPS", .{st.fps}) catch "? FPS";
@@ -327,30 +332,49 @@ fn drawStatusBar(ctx: *c.nk_context, win_w: u32, win_h: u32, st: State) void {
     c.nk_end(ctx);
 }
 
-fn drawFddLamps(ctx: *c.nk_context, access: [4]bool) void {
+fn drawDriveLamps(ctx: *c.nk_context, fdd: [4]bool, hdd: [4]bool) void {
     const canvas = c.nk_window_get_canvas(ctx);
     var bounds: c.struct_nk_rect = undefined;
     _ = c.nk_widget(&bounds, ctx);
 
+    var x = bounds.x;
+    x = drawLampGroup(ctx, canvas, bounds, x, "FDD:", fdd);
+    x += 18; // gap between the FDD and HDD groups
+    _ = drawLampGroup(ctx, canvas, bounds, x, "HDD:", hdd);
+}
+
+// The GUI exposes two FDD and two HDD slots, so we show two lamps per group.
+const lamp_count = 2;
+
+// Draws a "LABEL:" caption followed by the access lamps starting at x, and
+// returns the x just past the last lamp so groups can be laid out left to right.
+fn drawLampGroup(ctx: *c.nk_context, canvas: *c.struct_nk_command_buffer, bounds: c.struct_nk_rect, x: f32, label: [*:0]const u8, access: [4]bool) f32 {
     const lamp_w: f32 = 12;
     const lamp_h: f32 = 10;
     const gap: f32 = 6;
     const label_w: f32 = 36;
-    const lamp_y = bounds.y + (bounds.h - lamp_h) / 2.0;
 
     const active_color = c.nk_rgb(0xFF, 0x60, 0x10);
     const dim_color = c.nk_rgb(0x40, 0x18, 0x08);
     const text_color = c.nk_rgb(0xD0, 0xD0, 0xD0);
 
+    // nk_draw_text renders the glyphs from the rect's top down by font height,
+    // so center that band in the row to get a known text center line.
     const font = ctx.style.font;
-    c.nk_draw_text(canvas, c.nk_rect(bounds.x, bounds.y, label_w, bounds.h), "FDD:", 4, font, c.nk_rgb(0, 0, 0), text_color);
+    const font_h: f32 = font.*.height;
+    const text_top = bounds.y + (bounds.h - font_h) / 2.0;
+    c.nk_draw_text(canvas, c.nk_rect(x, text_top, label_w, font_h), label, 4, font, c.nk_rgb(0, 0, 0), text_color);
 
-    for (0..4) |i| {
+    // Center the lamps on the same center line as the text.
+    const lamp_y = text_top + (font_h - lamp_h) / 2.0;
+    const lamps_x = x + label_w;
+    for (0..lamp_count) |i| {
         const fi: f32 = @floatFromInt(i);
-        const lx = bounds.x + label_w + fi * (lamp_w + gap);
+        const lx = lamps_x + fi * (lamp_w + gap);
         const color = if (access[i]) active_color else dim_color;
         c.nk_fill_rect(canvas, c.nk_rect(lx, lamp_y, lamp_w, lamp_h), 0, color);
     }
+    return lamps_x + lamp_count * (lamp_w + gap) - gap;
 }
 
 // --- About Dialog ---

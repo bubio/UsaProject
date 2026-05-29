@@ -336,6 +336,12 @@ export fn frame() void {
             cz.usa_fdd_lamp(2) != 0,
             cz.usa_fdd_lamp(3) != 0,
         },
+        .hdd_access = .{
+            cz.usa_hdd_lamp(0) != 0,
+            cz.usa_hdd_lamp(1) != 0,
+            cz.usa_hdd_lamp(2) != 0,
+            cz.usa_hdd_lamp(3) != 0,
+        },
         .model = std.mem.sliceTo(&c.np2cfg.model, 0),
     });
 
