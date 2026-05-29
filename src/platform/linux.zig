@@ -17,6 +17,13 @@ pub fn monotonicNs() i128 {
     return @as(i128, ts.sec) * std.time.ns_per_s + ts.nsec;
 }
 
+/// Scale applied to locked-mode relative mouse deltas before they drive the
+/// PC-98 mouse. X11 pointer-lock deltas already track the host pointer, so no
+/// correction is needed.
+pub fn mouseScale() f32 {
+    return 1.0;
+}
+
 // --- Native window control via Xlib ---
 
 const XSizeHints = extern struct {

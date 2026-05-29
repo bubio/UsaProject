@@ -17,6 +17,13 @@ pub fn monotonicNs() i128 {
     return @as(i128, ts.sec) * std.time.ns_per_s + ts.nsec;
 }
 
+/// Scale applied to locked-mode relative mouse deltas before they drive the
+/// PC-98 mouse. On macOS the deltas from NSEvent are already pointer-accelerated
+/// to match the host, so no correction is needed.
+pub fn mouseScale() f32 {
+    return 1.0;
+}
+
 // --- Native window control via the Objective-C runtime ---
 
 const Id = ?*const anyopaque;

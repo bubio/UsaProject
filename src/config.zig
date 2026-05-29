@@ -1,5 +1,6 @@
 const std = @import("std");
 const cz = @import("c.zig");
+const input = @import("input.zig");
 
 const c = @cImport({
     @cInclude("stdio.h");
@@ -121,6 +122,8 @@ pub fn load() void {
             cz.usa_set_draw_skip(std.fmt.parseInt(u8, val, 0) catch 0);
         } else if (std.mem.eql(u8, key, "keyboard")) {
             cz.usa_set_keyboard(std.fmt.parseInt(u8, val, 0) catch 0);
+        } else if (std.mem.eql(u8, key, "MouseSensi")) {
+            input.setSensitivity(std.fmt.parseInt(u16, val, 0) catch 100);
         }
     }
 
@@ -189,6 +192,9 @@ pub fn save() void {
     writeU8Field(fp, &obuf, "NOWAIT", cz.usa_get_nowait());
     writeU8Field(fp, &obuf, "DrawSkip", cz.usa_get_draw_skip());
     writeU8Field(fp, &obuf, "keyboard", cz.usa_get_keyboard());
+    if (std.fmt.bufPrintZ(&obuf, "MouseSensi = {d}\n", .{input.getSensitivity()})) |line| {
+        _ = c.fputs(line.ptr, fp);
+    } else |_| {}
 
     std.debug.print(">>> config saved: {s}\n", .{std.mem.sliceTo(path, 0)});
 }

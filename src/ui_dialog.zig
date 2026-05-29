@@ -1,6 +1,7 @@
 const std = @import("std");
 const cz = @import("c.zig");
 const nk = @import("nk.zig");
+const input = @import("input.zig");
 const c = nk.c;
 
 const dialog_flags = c.NK_WINDOW_BORDER | c.NK_WINDOW_TITLE | c.NK_WINDOW_MOVABLE | c.NK_WINDOW_CLOSABLE | c.NK_WINDOW_NO_SCROLLBAR;
@@ -235,6 +236,23 @@ fn drawSystemTab(ctx: *c.nk_context, cfg: anytype) void {
             cz.usa_set_keyboard(0);
         if (c.nk_option_label(ctx, "US 101", if (kbd != 0) 1 else 0) != 0 and kbd == 0)
             cz.usa_set_keyboard(1);
+        c.nk_group_end(ctx);
+    }
+
+    if (beginBox(ctx, "sys_mouse", "Mouse", 58)) {
+        // Applies live; no core reset needed. 100% = per-OS default sensitivity.
+        c.nk_layout_row_begin(ctx, c.NK_STATIC, 22, 3);
+        c.nk_layout_row_push(ctx, 80);
+        c.nk_label(ctx, "Sensitivity:", c.NK_TEXT_LEFT);
+        c.nk_layout_row_push(ctx, 150);
+        var s_f: f32 = @floatFromInt(input.getSensitivity());
+        s_f = c.nk_slide_float(ctx, @floatFromInt(input.sensi_min), s_f, @floatFromInt(input.sensi_max), 5);
+        input.setSensitivity(@intFromFloat(s_f));
+        c.nk_layout_row_push(ctx, 45);
+        var sbuf: [8:0]u8 = undefined;
+        const sstr = std.fmt.bufPrintZ(&sbuf, "{d}%", .{input.getSensitivity()}) catch "?";
+        c.nk_label(ctx, sstr.ptr, c.NK_TEXT_RIGHT);
+        c.nk_layout_row_end(ctx);
         c.nk_group_end(ctx);
     }
 

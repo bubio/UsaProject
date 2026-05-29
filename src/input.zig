@@ -3,6 +3,7 @@ const sapp = @import("sokol").app;
 const cz = @import("c.zig");
 const nk = @import("nk.zig");
 const ui = @import("ui.zig");
+const platform = @import("platform.zig");
 
 /// Convert a sokol app keycode to a PC-98 NKEY code.
 /// Returns null if the key has no direct mapping or is unmapped.
@@ -114,6 +115,42 @@ fn mapKeycodeLayout(code: sapp.Keycode, is_101: bool) ?u8 {
 
 var mouse_captured: bool = false;
 
+// Captured-mouse sensitivity. The final scale applied to locked-mode relative
+// deltas is the per-OS baseline (platform.os.mouseScale(), treated as "100%")
+// times the user factor below. The baseline absorbs the big macOS/Windows feel
+// difference (Windows gets raw, unaccelerated device counts); the user factor
+// is the live knob exposed in the Configure dialog and persisted in config.
+pub const sensi_min: u16 = 10;
+pub const sensi_max: u16 = 400;
+var user_sensi_pct: u16 = 100;
+
+pub fn setSensitivity(pct: u16) void {
+    user_sensi_pct = std.math.clamp(pct, sensi_min, sensi_max);
+}
+
+pub fn getSensitivity() u16 {
+    return user_sensi_pct;
+}
+
+// Per-OS baseline, resolved once (querying the OS each event is wasteful).
+var os_scale: f32 = -1.0;
+// Sub-integer movement left over after scaling, carried to the next event so
+// slow drags aren't quantized away (usa_mouse_move only takes whole counts).
+var mouse_rem_x: f32 = 0.0;
+var mouse_rem_y: f32 = 0.0;
+
+fn scaledMouseDelta(dx: f32, dy: f32) struct { x: c_int, y: c_int } {
+    if (os_scale < 0.0) os_scale = platform.os.mouseScale();
+    const scale = os_scale * (@as(f32, @floatFromInt(user_sensi_pct)) / 100.0);
+    mouse_rem_x += dx * scale;
+    mouse_rem_y += dy * scale;
+    const ix = @trunc(mouse_rem_x);
+    const iy = @trunc(mouse_rem_y);
+    mouse_rem_x -= ix;
+    mouse_rem_y -= iy;
+    return .{ .x = @intFromFloat(ix), .y = @intFromFloat(iy) };
+}
+
 // Track which PC-98 keys are currently held on the host side,
 // so we can re-send them after a reset (which clears keystat).
 var keys_held: [128]bool = [_]bool{false} ** 128;
@@ -181,7 +218,8 @@ pub fn handleEvent(ev: [*c]const sapp.Event) callconv(.c) void {
     if (mouse_captured) {
         switch (event.type) {
             .MOUSE_MOVE => {
-                cz.usa_mouse_move(@intFromFloat(event.mouse_dx), @intFromFloat(event.mouse_dy));
+                const d = scaledMouseDelta(event.mouse_dx, event.mouse_dy);
+                if (d.x != 0 or d.y != 0) cz.usa_mouse_move(d.x, d.y);
             },
             .MOUSE_DOWN => {
                 cz.usa_mouse_btn_down(if (event.mouse_button == .LEFT) 1 else 0);

@@ -22,6 +22,17 @@ pub fn monotonicNs() i128 {
     return @divTrunc(c * std.time.ns_per_s, f);
 }
 
+/// Baseline scale for locked-mode relative mouse deltas, treated as the "100%"
+/// sensitivity that the user setting multiplies. While the mouse is locked,
+/// sokol feeds raw device counts (mickeys) straight through with no pointer
+/// acceleration, so the emulated cursor is far more sensitive than the host
+/// pointer; this damps it toward desktop feel. Fine-tuning is done at runtime
+/// via the Configure dialog's Mouse sensitivity slider, so this only sets the
+/// default operating point.
+pub fn mouseScale() f32 {
+    return 0.03;
+}
+
 // --- Native window control via Win32 ---
 
 const win = std.os.windows;
