@@ -139,13 +139,11 @@ fn drawMenuBar(ctx: *c.nk_context, win_w: u32) void {
     c.nk_window_set_bounds(ctx, "MenuBar", bounds);
     if (c.nk_begin(ctx, "MenuBar", bounds, c.NK_WINDOW_NO_SCROLLBAR | c.NK_WINDOW_BACKGROUND) != 0) {
         c.nk_menubar_begin(ctx);
-        c.nk_layout_row_begin(ctx, c.NK_STATIC, h - 8, 6);
+        c.nk_layout_row_begin(ctx, c.NK_STATIC, h - 8, 4);
 
         menuEmulate(ctx);
         menuFdd(ctx);
         menuHdd(ctx);
-        menuScreen(ctx, h);
-        menuDevice(ctx, h);
         menuOther(ctx);
 
         c.nk_layout_row_end(ctx);
@@ -203,118 +201,16 @@ fn menuHdd(ctx: *c.nk_context) void {
     }
 }
 
-fn menuScreen(ctx: *c.nk_context, menu_h: f32) void {
-    _ = menu_h;
-    c.nk_layout_row_push(ctx, 60);
-    if (c.nk_menu_begin_label(ctx, "Screen", c.NK_TEXT_LEFT, c.nk_vec2(200, 320)) != 0) {
-        var buf: [64]u8 = undefined;
-        c.nk_layout_row_dynamic(ctx, 22, 1);
-
-        if (c.nk_menu_item_label(ctx, "FullScreen", c.NK_TEXT_LEFT) != 0) {
-            sapp.toggleFullscreen();
-        }
-
-        c.nk_layout_row_dynamic(ctx, 4, 1);
-        c.nk_spacing(ctx, 1);
-        c.nk_layout_row_dynamic(ctx, 22, 1);
-
-        if (c.nk_menu_item_label(ctx, checkLabel(&buf, cz.c.np2cfg.DISPSYNC != 0, "Disp Vsync"), c.NK_TEXT_LEFT) != 0) {
-            cz.c.np2cfg.DISPSYNC ^= 1;
-        }
-        if (c.nk_menu_item_label(ctx, checkLabel(&buf, cz.c.np2cfg.RASTER != 0, "Real Palettes"), c.NK_TEXT_LEFT) != 0) {
-            cz.c.np2cfg.RASTER ^= 1;
-        }
-        if (c.nk_menu_item_label(ctx, checkLabel(&buf, cz.usa_get_nowait() != 0, "No Wait"), c.NK_TEXT_LEFT) != 0) {
-            cz.usa_set_nowait(cz.usa_get_nowait() ^ 1);
-        }
-
-        c.nk_layout_row_dynamic(ctx, 4, 1);
-        c.nk_spacing(ctx, 1);
-        c.nk_layout_row_dynamic(ctx, 22, 1);
-
-        const skip = cz.usa_get_draw_skip();
-        if (c.nk_menu_item_label(ctx, radioLabel(&buf, skip == 0, "Auto frame"), c.NK_TEXT_LEFT) != 0) {
-            cz.usa_set_draw_skip(0);
-        }
-        if (c.nk_menu_item_label(ctx, radioLabel(&buf, skip == 1, "Full frame"), c.NK_TEXT_LEFT) != 0) {
-            cz.usa_set_draw_skip(1);
-        }
-        if (c.nk_menu_item_label(ctx, radioLabel(&buf, skip == 2, "1/2 frame"), c.NK_TEXT_LEFT) != 0) {
-            cz.usa_set_draw_skip(2);
-        }
-        if (c.nk_menu_item_label(ctx, radioLabel(&buf, skip == 3, "1/3 frame"), c.NK_TEXT_LEFT) != 0) {
-            cz.usa_set_draw_skip(3);
-        }
-        if (c.nk_menu_item_label(ctx, radioLabel(&buf, skip == 4, "1/4 frame"), c.NK_TEXT_LEFT) != 0) {
-            cz.usa_set_draw_skip(4);
-        }
-
-        c.nk_layout_row_dynamic(ctx, 4, 1);
-        c.nk_spacing(ctx, 1);
-        c.nk_layout_row_dynamic(ctx, 22, 1);
-        if (c.nk_menu_item_label(ctx, "Screen option...", c.NK_TEXT_LEFT) != 0) {
-            ui_dialog.openScreenOption();
-            clearMouseClick(ctx);
-        }
-
-        c.nk_menu_end(ctx);
-    }
-}
-
-fn menuDevice(ctx: *c.nk_context, menu_h: f32) void {
-    _ = menu_h;
-    c.nk_layout_row_push(ctx, 60);
-    if (c.nk_menu_begin_label(ctx, "Device", c.NK_TEXT_LEFT, c.nk_vec2(210, 280)) != 0) {
-        var buf: [64]u8 = undefined;
-
-        // Keyboard
-        c.nk_layout_row_dynamic(ctx, 22, 1);
-        const kbd = cz.usa_get_keyboard();
-        if (c.nk_menu_item_label(ctx, radioLabel(&buf, kbd == 0, "JP 106 Keyboard"), c.NK_TEXT_LEFT) != 0) {
-            cz.usa_set_keyboard(0);
-        }
-        if (c.nk_menu_item_label(ctx, radioLabel(&buf, kbd != 0, "US 101 Keyboard"), c.NK_TEXT_LEFT) != 0) {
-            cz.usa_set_keyboard(1);
-        }
-
-        // Beep
-        c.nk_layout_row_dynamic(ctx, 4, 1);
-        c.nk_spacing(ctx, 1);
-        c.nk_layout_row_dynamic(ctx, 22, 1);
-        const beep = cz.c.np2cfg.BEEP_VOL;
-        if (c.nk_menu_item_label(ctx, radioLabel(&buf, beep == 0, "Beep off"), c.NK_TEXT_LEFT) != 0)
-            cz.usa_beep_setvol(0);
-        if (c.nk_menu_item_label(ctx, radioLabel(&buf, beep == 1, "Beep low"), c.NK_TEXT_LEFT) != 0)
-            cz.usa_beep_setvol(1);
-        if (c.nk_menu_item_label(ctx, radioLabel(&buf, beep == 2, "Beep mid"), c.NK_TEXT_LEFT) != 0)
-            cz.usa_beep_setvol(2);
-        if (c.nk_menu_item_label(ctx, radioLabel(&buf, beep == 3, "Beep high"), c.NK_TEXT_LEFT) != 0)
-            cz.usa_beep_setvol(3);
-
-        // Seek Sound
-        c.nk_layout_row_dynamic(ctx, 4, 1);
-        c.nk_spacing(ctx, 1);
-        c.nk_layout_row_dynamic(ctx, 22, 1);
-        if (c.nk_menu_item_label(ctx, checkLabel(&buf, cz.c.np2cfg.MOTOR != 0, "Seek Sound"), c.NK_TEXT_LEFT) != 0)
-            cz.c.np2cfg.MOTOR ^= 1;
-
-        // Sound option
-        c.nk_layout_row_dynamic(ctx, 4, 1);
-        c.nk_spacing(ctx, 1);
-        c.nk_layout_row_dynamic(ctx, 22, 1);
-        if (c.nk_menu_item_label(ctx, "Sound option...", c.NK_TEXT_LEFT) != 0) {
-            ui_dialog.openSoundMixer();
-            clearMouseClick(ctx);
-        }
-
-        c.nk_menu_end(ctx);
-    }
-}
-
 fn menuOther(ctx: *c.nk_context) void {
     var buf: [64]u8 = undefined;
     c.nk_layout_row_push(ctx, 50);
-    if (c.nk_menu_begin_label(ctx, "Other", c.NK_TEXT_LEFT, c.nk_vec2(160, 120)) != 0) {
+    if (c.nk_menu_begin_label(ctx, "Other", c.NK_TEXT_LEFT, c.nk_vec2(160, 160)) != 0) {
+        c.nk_layout_row_dynamic(ctx, 22, 1);
+        if (c.nk_menu_item_label(ctx, "FullScreen", c.NK_TEXT_LEFT) != 0) {
+            sapp.toggleFullscreen();
+        }
+        c.nk_layout_row_dynamic(ctx, 4, 1);
+        c.nk_spacing(ctx, 1);
         c.nk_layout_row_dynamic(ctx, 22, 1);
         if (c.nk_menu_item_label(ctx, checkLabel(&buf, show_clock, "Clock Disp"), c.NK_TEXT_LEFT) != 0) {
             show_clock = !show_clock;
