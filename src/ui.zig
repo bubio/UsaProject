@@ -8,6 +8,7 @@ const nk = @import("nk.zig");
 const c = nk.c;
 const ui_dialog = @import("ui_dialog.zig");
 const platform = @import("platform.zig");
+const cli = @import("cli.zig");
 
 pub const MENU_HEIGHT: u32 = 26;
 pub const STATUS_HEIGHT: u32 = 22;
@@ -68,11 +69,25 @@ pub const State = struct {
     model: []const u8 = "",
 };
 
+// Build an nfd filter spec ("fdi,d88,...") from cli's "*.ext" lists so the
+// dialog and the CLI argument parser accept exactly the same formats.
+fn extsToSpec(comptime exts: []const []const u8) [:0]const u8 {
+    comptime {
+        var body: []const u8 = "";
+        for (exts, 0..) |ext, i| {
+            if (i != 0) body = body ++ ",";
+            body = body ++ ext[1..]; // drop the leading '.'
+        }
+        const terminated = body ++ "\x00";
+        return terminated[0 .. terminated.len - 1 :0];
+    }
+}
+
 const fdd_filters = [_]nfd.Filter{
-    .{ .name = "FDD Images", .spec = "fdi,d88,hdm,hdi,fdd,xdf,2hd,2dd,nfd" },
+    .{ .name = "FDD Images", .spec = extsToSpec(&cli.fdd_exts) },
 };
 const hdd_filters = [_]nfd.Filter{
-    .{ .name = "HDD Images", .spec = "thd,nhd,vhd,hdd,hdi" },
+    .{ .name = "HDD Images", .spec = extsToSpec(&cli.hdd_exts) },
 };
 
 const PendingAction = enum {

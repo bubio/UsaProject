@@ -38,14 +38,14 @@ pub const max_fdd = 4;
 pub const max_hdd = 4;
 pub const model_max_len = 7; // NP2CFG.model is OEMCHAR[8] — leave room for NUL.
 
-const fdd_exts = [_][]const u8{
+pub const fdd_exts = [_][]const u8{
     ".d88", ".88d", ".d98", ".98d", ".fdi", ".xdf", ".hdm", ".dup",
     ".2hd", ".tfd", ".nfd", ".hd4", ".hd5", ".hd9", ".fdd", ".h01",
     ".hdb", ".ddb", ".dd6", ".dd9", ".dcp", ".dcu", ".flp", ".img",
     ".ima", ".bin", ".fim",
 };
 
-const hdd_exts = [_][]const u8{
+pub const hdd_exts = [_][]const u8{
     ".thd", ".nhd", ".hdi", ".vhd", ".slh", ".hdn", ".hdd", ".cmd",
 };
 
