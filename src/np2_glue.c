@@ -571,11 +571,24 @@ void np2_eject_fdd(unsigned drv) {
 }
 
 void np2_insert_hdd(unsigned drv, const char *path) {
-    sxsi_devopen((REG8)drv, path);
+    if (drv >= SASIHDD_MAX) return;
+    // pccore_reset() calls diskdrv_hddbind() internally, which closes every
+    // drive and reopens each one from np2cfg.sasihdd[]/idetype[]. Record the
+    // image into the config here, BEFORE the reset, so the bind opens it and
+    // the IDE BIOS boots from it. Calling sxsi_devopen() after the reset does
+    // not work: diskdrv_hddbind() resets an unconfigured drive's devtype back
+    // to SXSIDEV_NC, so the later open hits sxsi_devopen()'s default case and
+    // fails — leaving the machine to fall through to N88-BASIC.
+    file_cpyname(np2cfg.sasihdd[drv], path, MAX_PATH);
+    np2cfg.idetype[drv] = SXSIDEV_HDD;
 }
 
 void np2_eject_hdd(unsigned drv) {
+    if (drv >= SASIHDD_MAX) return;
     sxsi_devclose((REG8)drv);
+    // Clear the recorded image so the next diskdrv_hddbind() (run by a reset)
+    // does not re-attach it.
+    np2cfg.sasihdd[drv][0] = '\0';
 }
 
 // --- UI setting accessors (called from Zig ui.zig) ---

@@ -409,6 +409,9 @@ fn openHdd(drv: u32) void {
     if (nfd.openDialog(disk_alloc, &hdd_filters) catch null) |path| {
         defer disk_alloc.free(path);
         cz.np2_insert_hdd(drv, path.ptr);
+        // HDD changes are only picked up by diskdrv_hddbind(), which runs as
+        // part of a machine reset — reboot so the new image is recognized.
+        cz.pccore_reset();
     }
 }
 
@@ -418,4 +421,6 @@ fn ejectFdd(drv: u32) void {
 
 fn ejectHdd(drv: u32) void {
     cz.np2_eject_hdd(drv);
+    // Reboot so the machine comes back up without the ejected drive.
+    cz.pccore_reset();
 }

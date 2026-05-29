@@ -111,11 +111,14 @@ export fn init() void {
     config.load();
     if (parsed_opts) |opts| {
         if (opts.model) |m| cz.np2_set_model(m.ptr);
+        // HDD images must be registered into np2cfg before pccore_reset(),
+        // because the reset's diskdrv_hddbind() binds drives from the config.
+        configureHdds(opts);
     }
     cz.pccore_init();
     cz.pccore_reset();
     if (parsed_opts) |opts| {
-        insertDisks(opts);
+        insertFdds(opts);
         if (opts.audio_capture) |p| {
             _ = cz.usa_audio_capture_open(p.ptr, if (opts.audio_autotest) 1 else 0);
         }
@@ -179,20 +182,30 @@ export fn init() void {
     platform.os.lockWindow(FB_WIDTH, FB_HEIGHT, ui.MENU_HEIGHT + ui.STATUS_HEIGHT);
 }
 
-fn insertDisks(opts: cli.Options) void {
-    var fdd_drv: c_uint = 0;
+// HDDs are registered into np2cfg before pccore_reset() so the reset's
+// diskdrv_hddbind() opens and boots them.
+fn configureHdds(opts: cli.Options) void {
     var hdd_drv: c_uint = 0;
+    for (opts.disks) |d| switch (d.kind) {
+        .hdd => {
+            std.debug.print(">>> HDD{d}: {s}\n", .{ hdd_drv, d.path });
+            cz.np2_insert_hdd(hdd_drv, d.path.ptr);
+            hdd_drv += 1;
+        },
+        .fdd => {},
+    };
+}
+
+// FDDs are inserted after pccore_reset() via the diskdrv ready queue.
+fn insertFdds(opts: cli.Options) void {
+    var fdd_drv: c_uint = 0;
     for (opts.disks) |d| switch (d.kind) {
         .fdd => {
             std.debug.print(">>> FDD{d}: {s}\n", .{ fdd_drv, d.path });
             cz.np2_insert_fdd(fdd_drv, d.path.ptr);
             fdd_drv += 1;
         },
-        .hdd => {
-            std.debug.print(">>> HDD{d}: {s}\n", .{ hdd_drv, d.path });
-            cz.np2_insert_hdd(hdd_drv, d.path.ptr);
-            hdd_drv += 1;
-        },
+        .hdd => {},
     };
 }
 
