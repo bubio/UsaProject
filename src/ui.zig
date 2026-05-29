@@ -25,9 +25,6 @@ const hdd_filters = [_]nfd.Filter{
     .{ .name = "HDD Images", .spec = "thd,nhd,vhd,hdd,hdi" },
 };
 
-var show_clock: bool = false;
-var show_fps: bool = true;
-
 const PendingAction = enum {
     none,
     open_fdd0,
@@ -139,11 +136,12 @@ fn drawMenuBar(ctx: *c.nk_context, win_w: u32) void {
     c.nk_window_set_bounds(ctx, "MenuBar", bounds);
     if (c.nk_begin(ctx, "MenuBar", bounds, c.NK_WINDOW_NO_SCROLLBAR | c.NK_WINDOW_BACKGROUND) != 0) {
         c.nk_menubar_begin(ctx);
-        c.nk_layout_row_begin(ctx, c.NK_STATIC, h - 8, 4);
+        c.nk_layout_row_begin(ctx, c.NK_STATIC, h - 8, 5);
 
         menuEmulate(ctx);
         menuFdd(ctx);
         menuHdd(ctx);
+        menuScreen(ctx);
         menuOther(ctx);
 
         c.nk_layout_row_end(ctx);
@@ -201,25 +199,20 @@ fn menuHdd(ctx: *c.nk_context) void {
     }
 }
 
-fn menuOther(ctx: *c.nk_context) void {
-    var buf: [64]u8 = undefined;
-    c.nk_layout_row_push(ctx, 50);
-    if (c.nk_menu_begin_label(ctx, "Other", c.NK_TEXT_LEFT, c.nk_vec2(160, 160)) != 0) {
+fn menuScreen(ctx: *c.nk_context) void {
+    c.nk_layout_row_push(ctx, 60);
+    if (c.nk_menu_begin_label(ctx, "Screen", c.NK_TEXT_LEFT, c.nk_vec2(160, 80)) != 0) {
         c.nk_layout_row_dynamic(ctx, 22, 1);
         if (c.nk_menu_item_label(ctx, "FullScreen", c.NK_TEXT_LEFT) != 0) {
             sapp.toggleFullscreen();
         }
-        c.nk_layout_row_dynamic(ctx, 4, 1);
-        c.nk_spacing(ctx, 1);
-        c.nk_layout_row_dynamic(ctx, 22, 1);
-        if (c.nk_menu_item_label(ctx, checkLabel(&buf, show_clock, "Clock Disp"), c.NK_TEXT_LEFT) != 0) {
-            show_clock = !show_clock;
-        }
-        if (c.nk_menu_item_label(ctx, checkLabel(&buf, show_fps, "Frame Disp"), c.NK_TEXT_LEFT) != 0) {
-            show_fps = !show_fps;
-        }
-        c.nk_layout_row_dynamic(ctx, 4, 1);
-        c.nk_spacing(ctx, 1);
+        c.nk_menu_end(ctx);
+    }
+}
+
+fn menuOther(ctx: *c.nk_context) void {
+    c.nk_layout_row_push(ctx, 50);
+    if (c.nk_menu_begin_label(ctx, "Other", c.NK_TEXT_LEFT, c.nk_vec2(160, 80)) != 0) {
         c.nk_layout_row_dynamic(ctx, 22, 1);
         if (c.nk_menu_item_label(ctx, "About...", c.NK_TEXT_LEFT) != 0) {
             ui_dialog.openAbout();
@@ -251,13 +244,9 @@ fn drawStatusBar(ctx: *c.nk_context, win_w: u32, win_h: u32, st: State) void {
 
         drawFddLamps(ctx, st.fdd_access);
 
-        if (show_fps) {
-            var fbuf: [16]u8 = undefined;
-            const fline = std.fmt.bufPrintZ(&fbuf, "{d:.1} FPS", .{st.fps}) catch "? FPS";
-            c.nk_label(ctx, fline.ptr, c.NK_TEXT_RIGHT);
-        } else {
-            c.nk_spacing(ctx, 1);
-        }
+        var fbuf: [16]u8 = undefined;
+        const fline = std.fmt.bufPrintZ(&fbuf, "{d:.1} FPS", .{st.fps}) catch "? FPS";
+        c.nk_label(ctx, fline.ptr, c.NK_TEXT_RIGHT);
     }
     c.nk_end(ctx);
 }
