@@ -20,7 +20,7 @@ A PC-98 emulator frontend rebuilt with **Zig** and **sokol**, powered by the **N
 This project aims to provide a lightweight, modern, and cross-platform PC-98 experience.
 
 <p align="center">
-  <img src="assets/Screenshot.png" alt="UsaProject App ScreenShot">
+  <img src="docs/Screenshot.png" alt="UsaProject App ScreenShot">
 </p>
 
 ## Features
