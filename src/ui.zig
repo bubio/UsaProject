@@ -243,12 +243,16 @@ fn menuFdd(ctx: *c.nk_context) void {
     c.nk_layout_row_push(ctx, 45);
     if (c.nk_menu_begin_label(ctx, "FDD", c.NK_TEXT_LEFT, c.nk_vec2(180, 180)) != 0) {
         c.nk_layout_row_dynamic(ctx, 22, 1);
-        if (c.nk_menu_item_label(ctx, "Open FDD1...", c.NK_TEXT_LEFT) != 0) { pending = .open_fdd0; }
+        if (c.nk_menu_item_label(ctx, "Open FDD1...", c.NK_TEXT_LEFT) != 0) {
+            pending = .open_fdd0;
+        }
         if (c.nk_menu_item_label(ctx, "Eject FDD1", c.NK_TEXT_LEFT) != 0) ejectFdd(0);
         c.nk_layout_row_dynamic(ctx, 4, 1);
         c.nk_spacing(ctx, 1);
         c.nk_layout_row_dynamic(ctx, 22, 1);
-        if (c.nk_menu_item_label(ctx, "Open FDD2...", c.NK_TEXT_LEFT) != 0) { pending = .open_fdd1; }
+        if (c.nk_menu_item_label(ctx, "Open FDD2...", c.NK_TEXT_LEFT) != 0) {
+            pending = .open_fdd1;
+        }
         if (c.nk_menu_item_label(ctx, "Eject FDD2", c.NK_TEXT_LEFT) != 0) ejectFdd(1);
         c.nk_menu_end(ctx);
     }
@@ -258,12 +262,16 @@ fn menuHdd(ctx: *c.nk_context) void {
     c.nk_layout_row_push(ctx, 45);
     if (c.nk_menu_begin_label(ctx, "HDD", c.NK_TEXT_LEFT, c.nk_vec2(180, 180)) != 0) {
         c.nk_layout_row_dynamic(ctx, 22, 1);
-        if (c.nk_menu_item_label(ctx, "Open IDE0...", c.NK_TEXT_LEFT) != 0) { pending = .open_hdd0; }
+        if (c.nk_menu_item_label(ctx, "Open IDE0...", c.NK_TEXT_LEFT) != 0) {
+            pending = .open_hdd0;
+        }
         if (c.nk_menu_item_label(ctx, "Eject IDE0", c.NK_TEXT_LEFT) != 0) ejectHdd(0);
         c.nk_layout_row_dynamic(ctx, 4, 1);
         c.nk_spacing(ctx, 1);
         c.nk_layout_row_dynamic(ctx, 22, 1);
-        if (c.nk_menu_item_label(ctx, "Open IDE1...", c.NK_TEXT_LEFT) != 0) { pending = .open_hdd1; }
+        if (c.nk_menu_item_label(ctx, "Open IDE1...", c.NK_TEXT_LEFT) != 0) {
+            pending = .open_hdd1;
+        }
         if (c.nk_menu_item_label(ctx, "Eject IDE1", c.NK_TEXT_LEFT) != 0) ejectHdd(1);
         c.nk_menu_end(ctx);
     }
@@ -405,7 +413,7 @@ fn drawAbout(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
         if (c.nk_group_begin(ctx, "about_text", c.NK_WINDOW_NO_SCROLLBAR) != 0) {
             c.nk_layout_row_dynamic(ctx, 20, 1);
             c.nk_label(ctx, "UsaProject", c.NK_TEXT_LEFT);
-            c.nk_label(ctx, "Version: 0.1.0", c.NK_TEXT_LEFT);
+            c.nk_label(ctx, "Version: 0.2.0", c.NK_TEXT_LEFT);
             c.nk_label(ctx, "Core: NP2kai 0.86", c.NK_TEXT_LEFT);
             c.nk_group_end(ctx);
         }
