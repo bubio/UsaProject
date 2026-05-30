@@ -51,7 +51,10 @@ jobs:
           version: 0.16.0
 
       - name: Build
-        run: zig build -Doptimize=ReleaseFast
+        # Pin a portable CPU baseline so the released binary runs on older CPUs.
+        # Without this, the native target bakes in host-only instructions (e.g.
+        # BMI2 `shlx`) that crash with SIGILL on CPUs lacking them.
+        run: zig build -Doptimize=ReleaseFast -Dtarget=x86_64-linux-gnu -Dcpu=baseline
 
       - name: Package
         run: |
