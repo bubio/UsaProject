@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const sokol = @import("sokol");
 const sapp = sokol.app;
 const sg = sokol.gfx;
@@ -20,6 +21,12 @@ const config = @import("config.zig");
 const app_icon_rgba = @embedFile("AppIcon128.raw");
 
 fn makeAppIcon() sapp.IconDesc {
+    // macOS では .app バンドルの AppIcon.icns（余白付き・マルチ解像度）を Dock に使わせる。
+    // ランタイムで上書きすると余白なしの埋め込み画像になり、起動中だけ Dock アイコンが
+    // 他アプリより大きく見えてしまうため、何も設定しない（空 desc で sokol は上書きしない）。
+    if (builtin.os.tag == .macos) {
+        return .{ .sokol_default = false };
+    }
     var desc: sapp.IconDesc = .{ .sokol_default = false };
     desc.images[0] = .{
         .width = 128,
