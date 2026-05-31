@@ -98,6 +98,7 @@ const PendingAction = enum {
     none,
     open_fdd0,
     open_fdd1,
+    open_fdd_both,
     open_hdd0,
     open_hdd1,
 };
@@ -164,11 +165,17 @@ pub fn draw(ctx: *c.nk_context, win_w: u32, win_h: u32, st: State) void {
     drawMenuBar(ctx, win_w);
     drawStatusBar(ctx, win_w, win_h, st);
     if (ui_dialog.show_about) drawAbout(ctx, win_w, win_h);
+    if (ds_active()) drawDiskSelect(ctx, win_w, win_h);
     ui_dialog.draw(ctx, win_w, win_h);
 }
 
 pub fn flushPendingActions() void {
     if (dialog_open) return;
+    // While the disk-selection modal is up, don't start another file dialog.
+    if (ds_active()) {
+        pending = .none;
+        return;
+    }
     const action = pending;
     pending = .none;
     if (action == .none) return;
@@ -177,10 +184,11 @@ pub fn flushPendingActions() void {
     defer dialog_open = false;
 
     switch (action) {
-        .open_fdd0 => openFdd(0),
-        .open_fdd1 => openFdd(1),
-        .open_hdd0 => openHdd(0),
-        .open_hdd1 => openHdd(1),
+        .open_fdd0 => openSingle(.fdd, 0),
+        .open_fdd1 => openSingle(.fdd, 1),
+        .open_fdd_both => openFddBoth(),
+        .open_hdd0 => openSingle(.hdd, 0),
+        .open_hdd1 => openSingle(.hdd, 1),
         .none => {},
     }
 }
@@ -244,7 +252,7 @@ fn menuEmulate(ctx: *c.nk_context) void {
 
 fn menuFdd(ctx: *c.nk_context) void {
     c.nk_layout_row_push(ctx, 45);
-    if (c.nk_menu_begin_label(ctx, "FDD", c.NK_TEXT_LEFT, c.nk_vec2(180, 180)) != 0) {
+    if (c.nk_menu_begin_label(ctx, "FDD", c.NK_TEXT_LEFT, c.nk_vec2(180, 230)) != 0) {
         c.nk_layout_row_dynamic(ctx, 22, 1);
         if (c.nk_menu_item_label(ctx, "Open FDD1...", c.NK_TEXT_LEFT) != 0) {
             pending = .open_fdd0;
@@ -257,6 +265,14 @@ fn menuFdd(ctx: *c.nk_context) void {
             pending = .open_fdd1;
         }
         if (c.nk_menu_item_label(ctx, "Eject FDD2", c.NK_TEXT_LEFT) != 0) ejectFdd(1);
+        c.nk_layout_row_dynamic(ctx, 4, 1);
+        c.nk_spacing(ctx, 1);
+        c.nk_layout_row_dynamic(ctx, 22, 1);
+        // Batch convenience: mount a multi-disk archive's images, name-sorted,
+        // into FDD1+FDD2 at once (the old auto-assign behavior).
+        if (c.nk_menu_item_label(ctx, "Open FDD1+2 (auto)...", c.NK_TEXT_LEFT) != 0) {
+            pending = .open_fdd_both;
+        }
         c.nk_menu_end(ctx);
     }
 }
@@ -433,39 +449,6 @@ fn drawAbout(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
 
 const disk_alloc = std.heap.page_allocator;
 
-// Mount a dialog-selected path. An archive (.zip) is unpacked and the images
-// of `kind` it contains are mounted into consecutive drives starting at `drv`
-// (up to the per-kind drive limit), in filename order. A plain image mounts
-// into `drv`. Returns true if at least one image was inserted.
-fn insertSelection(kind: cli.DiskKind, drv: u32, path: [:0]const u8) bool {
-    const limit: u32 = if (kind == .fdd) cli.max_fdd else cli.max_hdd;
-    if (!archive.isArchive(path)) {
-        insertOne(kind, drv, path.ptr);
-        return true;
-    }
-
-    var set = archive.extractImages(disk_alloc, path) catch |err| {
-        std.debug.print("!! could not open archive '{s}': {s}\n", .{ path, @errorName(err) });
-        return false;
-    };
-    defer set.deinit();
-
-    var slot = drv;
-    var inserted = false;
-    for (set.images) |img| {
-        if (img.kind != kind) continue;
-        if (slot >= limit) {
-            std.debug.print("!! ignoring extra {s} image (max {d}): {s}\n", .{ @tagName(kind), limit, img.path });
-            break;
-        }
-        insertOne(kind, slot, img.path.ptr);
-        slot += 1;
-        inserted = true;
-    }
-    if (!inserted) std.debug.print("!! archive has no {s} image: {s}\n", .{ @tagName(kind), path });
-    return inserted;
-}
-
 fn insertOne(kind: cli.DiskKind, drv: u32, path: [*:0]const u8) void {
     switch (kind) {
         .fdd => cz.np2_insert_fdd(drv, path),
@@ -474,21 +457,152 @@ fn insertOne(kind: cli.DiskKind, drv: u32, path: [*:0]const u8) void {
     }
 }
 
-fn openFdd(drv: u32) void {
-    if (nfd.openDialog(disk_alloc, &fdd_filters) catch null) |path| {
-        defer disk_alloc.free(path);
-        _ = insertSelection(.fdd, drv, path);
+// HDD changes are only picked up by diskdrv_hddbind(), which runs as part of a
+// machine reset — reboot so a newly mounted/ejected image is recognized.
+fn resetIfHdd(kind: cli.DiskKind) void {
+    if (kind == .hdd) cz.pccore_reset();
+}
+
+// Open a file dialog for `kind` and mount the selection into drive `drv`.
+// A plain image mounts directly. An archive (.zip) is unpacked: if it holds a
+// single image of `kind` that one is mounted; if it holds several, the disk-
+// selection modal is shown so the user picks which disk goes into `drv`.
+fn openSingle(kind: cli.DiskKind, drv: u32) void {
+    const filters = if (kind == .fdd) &fdd_filters else &hdd_filters;
+    const path = (nfd.openDialog(disk_alloc, filters) catch null) orelse return;
+    defer disk_alloc.free(path);
+
+    if (!archive.isArchive(path)) {
+        insertOne(kind, drv, path.ptr);
+        resetIfHdd(kind);
+        return;
+    }
+
+    var set = archive.extractImages(disk_alloc, path) catch |err| {
+        std.debug.print("!! could not open archive '{s}': {s}\n", .{ path, @errorName(err) });
+        return;
+    };
+
+    var count: usize = 0;
+    var only: ?[*:0]const u8 = null;
+    for (set.images) |img| {
+        if (img.kind != kind) continue;
+        count += 1;
+        only = img.path.ptr;
+    }
+
+    switch (count) {
+        0 => {
+            std.debug.print("!! archive has no {s} image: {s}\n", .{ @tagName(kind), path });
+            set.deinit();
+        },
+        1 => {
+            insertOne(kind, drv, only.?);
+            resetIfHdd(kind);
+            set.deinit();
+        },
+        else => {
+            // Hand ownership of `set` to the modal; it frees it on choose/cancel.
+            ds_set = set;
+            ds_kind = kind;
+            ds_target = drv;
+            ds_reset_after = (kind == .hdd);
+            ds_reopen = true;
+        },
     }
 }
 
-fn openHdd(drv: u32) void {
-    if (nfd.openDialog(disk_alloc, &hdd_filters) catch null) |path| {
-        defer disk_alloc.free(path);
-        if (insertSelection(.hdd, drv, path)) {
-            // HDD changes are only picked up by diskdrv_hddbind(), which runs
-            // as part of a machine reset — reboot so the new image is recognized.
-            cz.pccore_reset();
+// "Open FDD1+2 (auto)": mount the archive's FDD images, name-sorted, into FDD1
+// and FDD2 (the two drives the GUI exposes). A plain image just goes to FDD1.
+fn openFddBoth() void {
+    const path = (nfd.openDialog(disk_alloc, &fdd_filters) catch null) orelse return;
+    defer disk_alloc.free(path);
+
+    if (!archive.isArchive(path)) {
+        insertOne(.fdd, 0, path.ptr);
+        return;
+    }
+
+    var set = archive.extractImages(disk_alloc, path) catch |err| {
+        std.debug.print("!! could not open archive '{s}': {s}\n", .{ path, @errorName(err) });
+        return;
+    };
+    defer set.deinit();
+
+    var slot: u32 = 0;
+    for (set.images) |img| {
+        if (img.kind != .fdd) continue;
+        if (slot >= 2) {
+            std.debug.print("!! ignoring extra fdd image (FDD1+2 holds 2): {s}\n", .{img.path});
+            break;
         }
+        insertOne(.fdd, slot, img.path.ptr);
+        slot += 1;
+    }
+    if (slot == 0) std.debug.print("!! archive has no fdd image: {s}\n", .{path});
+}
+
+// --- Disk-selection modal (shown when an archive holds multiple images) ---
+
+var ds_set: ?archive.ImageSet = null;
+var ds_kind: cli.DiskKind = .fdd;
+var ds_target: u32 = 0;
+var ds_reset_after: bool = false;
+var ds_reopen: bool = false;
+
+fn ds_active() bool {
+    return ds_set != null;
+}
+
+fn ds_clear() void {
+    if (ds_set) |*s| s.deinit();
+    ds_set = null;
+}
+
+fn drawDiskSelect(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
+    const set = if (ds_set) |*s| s else return;
+
+    const dw: f32 = 360;
+    const dh: f32 = 300;
+    const dx = (@as(f32, @floatFromInt(win_w)) - dw) / 2.0;
+    const dy = (@as(f32, @floatFromInt(win_h)) - dh) / 2.0;
+    const bounds = c.nk_rect(dx, dy, dw, dh);
+    const flags = c.NK_WINDOW_BORDER | c.NK_WINDOW_TITLE | c.NK_WINDOW_MOVABLE | c.NK_WINDOW_CLOSABLE | c.NK_WINDOW_NO_SCROLLBAR;
+
+    c.nk_window_show(ctx, "Select Disk", c.NK_SHOWN);
+    if (ds_reopen) {
+        ds_reopen = false;
+        c.nk_window_set_bounds(ctx, "Select Disk", bounds);
+    }
+
+    var chosen: ?[*:0]const u8 = null;
+    var cancel = false;
+    if (c.nk_begin(ctx, "Select Disk", bounds, flags) != 0) {
+        c.nk_layout_row_dynamic(ctx, 22, 1);
+        c.nk_label(ctx, "Choose a disk to mount:", c.NK_TEXT_LEFT);
+
+        c.nk_layout_row_dynamic(ctx, 200, 1);
+        if (c.nk_group_begin(ctx, "ds_list", c.NK_WINDOW_BORDER) != 0) {
+            c.nk_layout_row_dynamic(ctx, 26, 1);
+            for (set.images) |img| {
+                if (img.kind != ds_kind) continue;
+                if (c.nk_button_label(ctx, img.name.ptr) != 0) chosen = img.path.ptr;
+            }
+            c.nk_group_end(ctx);
+        }
+
+        c.nk_layout_row_dynamic(ctx, 26, 1);
+        if (c.nk_button_label(ctx, "Cancel") != 0) cancel = true;
+    }
+    c.nk_end(ctx);
+    if (c.nk_window_is_hidden(ctx, "Select Disk") != 0) cancel = true;
+
+    if (chosen) |path| {
+        insertOne(ds_kind, ds_target, path);
+        if (ds_reset_after) cz.pccore_reset();
+        ds_clear();
+    } else if (cancel) {
+        ds_clear();
     }
 }
 

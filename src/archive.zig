@@ -26,10 +26,13 @@ pub const Error = error{
     OutOfMemory,
 };
 
-/// A disk image extracted from an archive. `path` points into the cache and
-/// is owned by the containing `ImageSet`.
+/// A disk image extracted from an archive. `path` and `name` point into the
+/// cache/arena and are owned by the containing `ImageSet`.
 pub const Image = struct {
     path: [:0]const u8,
+    /// Human-facing label for disk-selection UI: the original archive filename
+    /// when it survives ASCII sanitization, else "Disk N". See collectImages.
+    name: [:0]const u8,
     kind: cli.DiskKind, // always .fdd or .hdd
 };
 
@@ -151,11 +154,12 @@ fn ensureExtracted(io: std.Io, allocator: std.mem.Allocator, archive_path: [:0]c
 /// We do NOT use std.zip.extract: PC-98 game archives routinely store entry
 /// names in CP932 (Shift-JIS) and inside a top-level directory, and macOS/APFS
 /// rejects non-UTF-8 filenames (error.BadPathName). Instead we extract only the
-/// disk images, each under a safe ASCII name "<NNNN><ext>" assigned in original
-/// filename order, so collectImages' path sort reproduces that order on reuse.
-/// Non-image entries (readme, directories) are skipped — the emulator only
-/// needs the raw images. Extensions are ASCII even within CP932 names ('.' and
-/// '/' never occur as Shift-JIS trailing bytes), so classification stays valid.
+/// disk images, each under a safe name "<NNNN>_<sanitized-basename>" assigned in
+/// original filename order, so collectImages' path sort reproduces that order on
+/// reuse and can recover a display label from the basename. Non-image entries
+/// (readme, directories) are skipped — the emulator only needs the raw images.
+/// Extensions are ASCII even within CP932 names ('.' and '/' never occur as
+/// Shift-JIS trailing bytes), so classification stays valid.
 fn unpackImages(io: std.Io, allocator: std.mem.Allocator, archive_path: [:0]const u8, dest: std.Io.Dir) !void {
     var file = try std.Io.Dir.cwd().openFile(io, archive_path, .{});
     defer file.close(io);
@@ -190,12 +194,50 @@ fn unpackImages(io: std.Io, allocator: std.mem.Allocator, archive_path: [:0]cons
     }.lt);
 
     for (cands.items, 0..) |cand, i| {
+        const base = basename(cand.name);
         const dot = std.mem.lastIndexOfScalar(u8, cand.name, '.').?;
-        const ext = cand.name[dot..];
-        var out_name_buf: [32]u8 = undefined;
-        const out_name = try std.fmt.bufPrint(&out_name_buf, "{d:0>4}{s}", .{ i, ext });
+        const ext = cand.name[dot..]; // ASCII even within CP932 names
+        // "<NNNN>_<sanitized>". The sanitized basename keeps a recoverable
+        // display label; if it drops everything (all-CP932 name) we still have
+        // the ASCII extension so classifyExt and collectImages keep working.
+        var san_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const san = sanitizeAscii(&san_buf, base);
+        var out_name_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const out_name = if (san.len == 0)
+            try std.fmt.bufPrint(&out_name_buf, "{d:0>4}_{s}", .{ i, ext })
+        else
+            try std.fmt.bufPrint(&out_name_buf, "{d:0>4}_{s}", .{ i, san });
         try writeEntry(io, &fr, cand.entry, dest, out_name);
     }
+}
+
+/// The path component after the last '/' or '\'. PC-98 archives often store a
+/// top-level directory; the disk label lives in the final component.
+fn basename(name: []const u8) []const u8 {
+    var start: usize = 0;
+    for (name, 0..) |ch, i| {
+        if (ch == '/' or ch == '\\') start = i + 1;
+    }
+    return name[start..];
+}
+
+/// Copy the printable-ASCII filename-safe bytes of `src` into `dst`, dropping
+/// everything else (CP932 bytes, control chars, path separators). Returns the
+/// written slice. Used both to build the on-disk cache name and to recover a
+/// display label from it later.
+fn sanitizeAscii(dst: []u8, src: []const u8) []u8 {
+    var n: usize = 0;
+    for (src) |ch| {
+        const ok = switch (ch) {
+            'A'...'Z', 'a'...'z', '0'...'9', '.', '_', '-', ' ' => true,
+            else => false,
+        };
+        if (ok and n < dst.len) {
+            dst[n] = ch;
+            n += 1;
+        }
+    }
+    return dst[0..n];
 }
 
 /// Decompress a single zip entry's data into `dest`/`out_name` (store/deflate).
@@ -245,14 +287,39 @@ fn collectImages(io: std.Io, allocator: std.mem.Allocator, cache_dir: []const u8
         const kind = cli.classifyExt(entry.basename) orelse continue;
         if (kind == .archive) continue; // ignore nested archives
         const full = try std.fmt.allocPrintSentinel(a, "{s}/{s}", .{ cache_dir, entry.path }, 0);
-        try list.append(a, .{ .path = full, .kind = kind });
+        // `name` is filled in after sorting so the "Disk N" fallback numbers
+        // images in their final display order.
+        try list.append(a, .{ .path = full, .name = "", .kind = kind });
     }
 
     if (list.items.len == 0) return error.NoDiskImageInArchive;
 
     const images = try list.toOwnedSlice(a);
     std.mem.sort(Image, images, {}, lessByPath);
+    for (images, 0..) |*img, i| {
+        const label = stripIndexPrefix(basename(img.path));
+        img.name = if (hasBlankStem(label))
+            try std.fmt.allocPrintSentinel(a, "Disk {d}", .{i + 1}, 0)
+        else
+            try a.dupeZ(u8, label);
+    }
     return .{ .images = images, .arena = arena };
+}
+
+/// Drop the "<NNNN>_" extraction prefix that unpackImages prepends, recovering
+/// the sanitized original basename. Returns the input unchanged if it lacks the
+/// prefix (e.g. plain on-disk images that were never archive-extracted).
+fn stripIndexPrefix(name: []const u8) []const u8 {
+    if (name.len < 5 or name[4] != '_') return name;
+    for (name[0..4]) |ch| if (ch < '0' or ch > '9') return name;
+    return name[5..];
+}
+
+/// True when nothing meaningful precedes the extension (e.g. ".fdi" recovered
+/// from an all-CP932 name), so the caller falls back to a "Disk N" label.
+fn hasBlankStem(label: []const u8) bool {
+    const dot = std.mem.lastIndexOfScalar(u8, label, '.') orelse label.len;
+    return std.mem.trim(u8, label[0..dot], "_ -").len == 0;
 }
 
 fn lessByPath(_: void, lhs: Image, rhs: Image) bool {
@@ -269,4 +336,34 @@ test "isArchive — zip detected, disk images not" {
     try testing.expect(!isArchive("game.d88"));
     try testing.expect(!isArchive("work.hdi"));
     try testing.expect(!isArchive("noext"));
+}
+
+test "basename — strips top-level directory" {
+    try testing.expectEqualStrings("a.fdi", basename("dir/a.fdi"));
+    try testing.expectEqualStrings("a.fdi", basename("x\\y\\a.fdi"));
+    try testing.expectEqualStrings("a.fdi", basename("a.fdi"));
+}
+
+test "sanitizeAscii — keeps safe bytes, drops the rest" {
+    var buf: [64]u8 = undefined;
+    try testing.expectEqualStrings("GAME_A.FDI", sanitizeAscii(&buf, "GAME_A.FDI"));
+    try testing.expectEqualStrings("Disk 1.fdi", sanitizeAscii(&buf, "Disk 1.fdi"));
+    // CP932 (Shift-JIS) bytes are dropped; the ASCII extension survives.
+    try testing.expectEqualStrings(".fdi", sanitizeAscii(&buf, "\x8b\xe0\x8c\xed.fdi"));
+    try testing.expectEqualStrings("", sanitizeAscii(&buf, "\x8b\xe0\x8c\xed"));
+}
+
+test "stripIndexPrefix — recovers the original label" {
+    try testing.expectEqualStrings("GAME_A.FDI", stripIndexPrefix("0003_GAME_A.FDI"));
+    try testing.expectEqualStrings(".fdi", stripIndexPrefix("0000_.fdi"));
+    // No "<NNNN>_" prefix: returned unchanged.
+    try testing.expectEqualStrings("plain.fdi", stripIndexPrefix("plain.fdi"));
+    try testing.expectEqualStrings("12ab_x.fdi", stripIndexPrefix("12ab_x.fdi"));
+}
+
+test "hasBlankStem — extension-only labels fall back to Disk N" {
+    try testing.expect(hasBlankStem(".fdi")); // all-CP932 name sanitized away
+    try testing.expect(hasBlankStem("_ .hdi"));
+    try testing.expect(!hasBlankStem("GAME_A.FDI"));
+    try testing.expect(!hasBlankStem("disk1.fdi"));
 }
