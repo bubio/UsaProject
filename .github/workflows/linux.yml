@@ -51,10 +51,14 @@ jobs:
           version: 0.16.0
 
       - name: Build
-        # Pin a portable CPU baseline so the released binary runs on older CPUs.
-        # Without this, the native target bakes in host-only instructions (e.g.
-        # BMI2 `shlx`) that crash with SIGILL on CPUs lacking them.
-        run: zig build -Doptimize=ReleaseFast -Dtarget=x86_64-linux-gnu -Dcpu=baseline
+        # Pin the x86_64-v2 microarchitecture level (2009+ CPUs) so the released
+        # binary stays portable. The native target would bake in host-only
+        # instructions (e.g. BMI2 `shlx`, part of v3) that crash with SIGILL on
+        # CPUs lacking them; v2 avoids BMI2 while still allowing SSE4.2 etc.
+        # Set only -Dcpu (not -Dtarget): keeping the native OS/ABI lets Zig find the
+        # system libraries (asound/GL/X11/etc). An explicit -Dtarget makes Zig treat
+        # the build as cross-compilation and skip the native library search paths.
+        run: zig build -Doptimize=ReleaseFast -Dcpu=x86_64_v2
 
       - name: Package
         run: |
@@ -69,8 +73,30 @@ jobs:
           path: UsaProject-linux.zip
           if-no-files-found: error
 
-      - name: Upload release asset
+      - name: Install nfpm
+        if: github.event_name == 'release'
+        run: |
+          NFPM_VERSION=2.46.3
+          curl -fsSL "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_amd64.deb" -o /tmp/nfpm.deb
+          sudo dpkg -i /tmp/nfpm.deb
+
+      - name: Build deb and rpm packages
+        if: github.event_name == 'release'
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          # Strip the leading "v" from the tag (e.g. v0.2.0 -> 0.2.0) for nfpm.
+          export VERSION="${VERSION#v}"
+          mkdir -p dist
+          nfpm package -f packaging/nfpm.yaml -p deb -t dist
+          nfpm package -f packaging/nfpm.yaml -p rpm -t dist
+          ls -la dist
+
+      - name: Upload release assets
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: UsaProject-linux.zip
+          files: |
+            UsaProject-linux.zip
+            dist/*.deb
+            dist/*.rpm

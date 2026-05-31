@@ -40,7 +40,11 @@ jobs:
           version: 0.16.0
 
       - name: Build
-        run: zig build -Doptimize=ReleaseFast
+        # Pin the x86_64-v3 microarchitecture level (2013+ CPUs: AVX2/BMI2/FMA) so
+        # the released binary is portable across modern CPUs. v4 is intentionally
+        # avoided: it requires AVX-512, which most consumer CPUs lack (Intel fused
+        # it off on 12th-gen+ consumer parts; AMD only added it in Zen 4).
+        run: zig build -Doptimize=ReleaseFast -Dcpu=x86_64_v3
 
       - name: Package
         shell: pwsh

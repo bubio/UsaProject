@@ -41,8 +41,23 @@ jobs:
         with:
           version: ${{ env.zig_version }}
 
-      - name: Build
-        run: zig build bundle -Doptimize=ReleaseFast
+      - name: Build universal binary
+        # macos-latest runners are arm64. Build the .app natively (arm64), build an
+        # x86_64 slice, then lipo them into one universal binary so the released app
+        # runs on both Apple Silicon and Intel Macs.
+        #
+        # The x86_64 slice uses -Dtarget=x86_64-native (NOT x86_64-macos): keeping
+        # the OS component "native" lets Zig auto-detect the macOS SDK and find the
+        # system frameworks (AppKit/Metal/etc). An explicit -macos marks the OS as
+        # non-native, skips SDK detection, and the framework link fails.
+        run: |
+          zig build bundle -Doptimize=ReleaseFast
+          zig build -Doptimize=ReleaseFast -Dtarget=x86_64-native -p zig-out-x64
+          lipo -create \
+            zig-out/UsaProject.app/Contents/MacOS/UsaProject \
+            zig-out-x64/bin/UsaProject \
+            -output zig-out/UsaProject.app/Contents/MacOS/UsaProject
+          lipo -info zig-out/UsaProject.app/Contents/MacOS/UsaProject
 
       - name: Package app
         run: |
