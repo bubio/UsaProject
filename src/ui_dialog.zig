@@ -263,12 +263,8 @@ fn drawSystemTab(ctx: *c.nk_context, cfg: anytype) void {
 // --- Tab 2: Screen (display toggles / GDC / Graphic Charger / Skipline / Mono) ---
 
 fn drawScreenTab(ctx: *c.nk_context, cfg: anytype) void {
-    if (beginBox(ctx, "scr_disp", "Display", 130)) {
+    if (beginBox(ctx, "scr_disp", "Display", 108)) {
         c.nk_layout_row_dynamic(ctx, 22, 1);
-        var vsync_v: c_int = if (cfg.DISPSYNC != 0) 1 else 0;
-        _ = c.nk_checkbox_label(ctx, "Disp Vsync", &vsync_v);
-        cfg.DISPSYNC = if (vsync_v != 0) 1 else 0;
-
         var raster_v: c_int = if (cfg.RASTER != 0) 1 else 0;
         _ = c.nk_checkbox_label(ctx, "Real Palettes", &raster_v);
         cfg.RASTER = if (raster_v != 0) 1 else 0;

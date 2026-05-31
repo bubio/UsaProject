@@ -45,14 +45,13 @@ fn u32entry(key: []const u8, ptr: *u32) Entry {
     return .{ .key = key, .kind = .u32_val, .ptr = ptr };
 }
 
-fn getEntries() [25]Entry {
+fn getEntries() [24]Entry {
     const cfg = &cz.c.np2cfg;
     return .{
         u32entry("clk_base", &cfg.baseclock),
         u32entry("clk_mult", &cfg.multiple),
 
         u8entry("uPD72020", &cfg.uPD72020),
-        u8entry("DispSync", &cfg.DISPSYNC),
         u8entry("Real_Pal", &cfg.RASTER),
         u8entry("realpal", &cfg.realpal),
         u8entry("LCD_MODE", &cfg.LCD_MODE),
