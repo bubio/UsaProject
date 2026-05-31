@@ -9,6 +9,8 @@ on:
       - "docs/**"
       - "LICENSE"
       - ".gitignore"
+      - ".github/workflows/linux.yml"
+      - ".github/workflows/windows.yml"
   pull_request:
     branches:
       - main
@@ -17,6 +19,8 @@ on:
       - "docs/**"
       - "LICENSE"
       - ".gitignore"
+      - ".github/workflows/linux.yml"
+      - ".github/workflows/windows.yml"
   release:
     types:
       - published

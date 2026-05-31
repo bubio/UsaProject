@@ -5,18 +5,22 @@ on:
     branches:
       - main
     paths-ignore:
-      - '*.md'
-      - 'docs/**'
-      - 'LICENSE'
-      - '.gitignore'
+      - "*.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".gitignore"
+      - ".github/workflows/linux.yml"
+      - ".github/workflows/macos.yml"
   pull_request:
     branches:
       - main
     paths-ignore:
-      - '*.md'
-      - 'docs/**'
-      - 'LICENSE'
-      - '.gitignore'
+      - "*.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".gitignore"
+      - ".github/workflows/linux.yml"
+      - ".github/workflows/macos.yml"
   release:
     types:
       - published
