@@ -135,6 +135,7 @@ export fn init() void {
     cz.pccore_reset();
     if (parsed_opts) |opts| {
         insertFdds(expanded_disks);
+        registerCliMounts(expanded_disks);
         if (opts.audio_capture) |p| {
             _ = cz.usa_audio_capture_open(p.ptr, if (opts.audio_autotest) 1 else 0);
         }
@@ -263,6 +264,26 @@ fn insertFdds(disks: []const cli.Disk) void {
             fdd_drv += 1;
         },
         .hdd, .archive => {},
+    };
+}
+
+// Populate the UI's per-drive slots for disks mounted from the command line, so
+// the FDD/HDD menus show what is loaded and offer the source's siblings as swap
+// targets. The GUI exposes only drives 0 and 1; extras are ignored. Best-effort
+// (registerMount silently no-ops on scan failure).
+fn registerCliMounts(disks: []const cli.Disk) void {
+    var fdd_drv: u32 = 0;
+    var hdd_drv: u32 = 0;
+    for (disks) |d| switch (d.kind) {
+        .fdd => {
+            if (fdd_drv < 2) ui.registerMount(.fdd, fdd_drv, d.path);
+            fdd_drv += 1;
+        },
+        .hdd => {
+            if (hdd_drv < 2) ui.registerMount(.hdd, hdd_drv, d.path);
+            hdd_drv += 1;
+        },
+        .archive => {},
     };
 }
 

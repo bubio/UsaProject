@@ -143,6 +143,7 @@ pub fn shutdown() void {
         c.snk_destroy_image(about_icon);
         about_icon_valid = false;
     }
+    freeSlots();
 }
 
 var style_patched: bool = false;
@@ -250,26 +251,91 @@ fn menuEmulate(ctx: *c.nk_context) void {
     }
 }
 
+// Map a drive to the deferred "open file dialog" action for it.
+fn pendingOpen(kind: cli.DiskKind, drv: u32) PendingAction {
+    return switch (kind) {
+        .fdd => if (drv == 0) .open_fdd0 else .open_fdd1,
+        .hdd => if (drv == 0) .open_hdd0 else .open_hdd1,
+        .archive => .none,
+    };
+}
+
+fn menuSep(ctx: *c.nk_context) void {
+    c.nk_layout_row_dynamic(ctx, 4, 1);
+    c.nk_spacing(ctx, 1);
+}
+
+// Nuklear advances each row by `row_height + style.window.spacing.y` (default
+// 4) and starts the panel one top padding (default 4) in. The menu can't
+// scroll, so the popup must be tall enough for every row or the last item is
+// clipped. We size by summing rowH() per row and add MENU_SLACK on top to
+// absorb top/bottom padding plus rounding; the surplus is just empty space at
+// the popup's bottom and stays well within the window height.
+const NK_SPACING_Y: f32 = 4;
+const MENU_SLACK: f32 = 30;
+
+// Height consumed by one row of content height `h` (the row plus the spacing
+// Nuklear inserts after it).
+fn rowH(h: f32) f32 {
+    return h + NK_SPACING_Y;
+}
+
+// Pixel height a drive's section needs. The menu shows a compact block: header
+// + Open + Eject, then either the clickable source name plus the mounted disk,
+// or the "(empty)" line.
+fn sectionHeight(kind: cli.DiskKind, drv: u32) f32 {
+    var h: f32 = rowH(18) + rowH(22) + rowH(22); // header + Open + Eject
+    h += if (slotsFor(kind)[drv].set != null) rowH(22) + rowH(18) else rowH(18);
+    return h;
+}
+
+// One drive's block inside a drive menu: a non-clickable header, Open/Eject,
+// then (if loaded) the clickable source name — which opens the scrollable disk-
+// selection modal for swapping — and a label showing the mounted disk.
+fn driveSection(ctx: *c.nk_context, kind: cli.DiskKind, drv: u32, title: [*:0]const u8) void {
+    // Centered so the non-selectable drive header reads differently from the
+    // left-aligned, clickable items below it.
+    c.nk_layout_row_dynamic(ctx, 18, 1);
+    c.nk_label(ctx, title, c.NK_TEXT_CENTERED);
+
+    c.nk_layout_row_dynamic(ctx, 22, 1);
+    if (c.nk_menu_item_label(ctx, "Open...", c.NK_TEXT_LEFT) != 0) pending = pendingOpen(kind, drv);
+    if (c.nk_menu_item_label(ctx, "Eject", c.NK_TEXT_LEFT) != 0) {
+        switch (kind) {
+            .fdd => ejectFdd(drv),
+            .hdd => ejectHdd(drv),
+            .archive => {},
+        }
+    }
+
+    const slot = &slotsFor(kind)[drv];
+    if (slot.set) |set| {
+        // Clicking the source name opens the disk-selection modal to swap disks.
+        c.nk_layout_row_dynamic(ctx, 22, 1);
+        if (c.nk_menu_item_label(ctx, set.source.ptr, c.NK_TEXT_LEFT) != 0) openSwap(kind, drv);
+        // The mounted disk (display only).
+        c.nk_layout_row_dynamic(ctx, 18, 1);
+        const cur_name: [*:0]const u8 = if (slot.current) |i| set.images[i].name.ptr else "(no disk)";
+        c.nk_label(ctx, cur_name, c.NK_TEXT_RIGHT);
+    } else {
+        c.nk_layout_row_dynamic(ctx, 18, 1);
+        c.nk_label(ctx, "(empty)", c.NK_TEXT_LEFT);
+    }
+}
+
 fn menuFdd(ctx: *c.nk_context) void {
     c.nk_layout_row_push(ctx, 45);
-    if (c.nk_menu_begin_label(ctx, "FDD", c.NK_TEXT_LEFT, c.nk_vec2(180, 230)) != 0) {
-        c.nk_layout_row_dynamic(ctx, 22, 1);
-        if (c.nk_menu_item_label(ctx, "Open FDD1...", c.NK_TEXT_LEFT) != 0) {
-            pending = .open_fdd0;
-        }
-        if (c.nk_menu_item_label(ctx, "Eject FDD1", c.NK_TEXT_LEFT) != 0) ejectFdd(0);
-        c.nk_layout_row_dynamic(ctx, 4, 1);
-        c.nk_spacing(ctx, 1);
-        c.nk_layout_row_dynamic(ctx, 22, 1);
-        if (c.nk_menu_item_label(ctx, "Open FDD2...", c.NK_TEXT_LEFT) != 0) {
-            pending = .open_fdd1;
-        }
-        if (c.nk_menu_item_label(ctx, "Eject FDD2", c.NK_TEXT_LEFT) != 0) ejectFdd(1);
-        c.nk_layout_row_dynamic(ctx, 4, 1);
-        c.nk_spacing(ctx, 1);
-        c.nk_layout_row_dynamic(ctx, 22, 1);
+    // sections + two separators (rowH(4)) + the auto item (rowH(22)) + slack.
+    const h = sectionHeight(.fdd, 0) + sectionHeight(.fdd, 1) +
+        rowH(4) * 2 + rowH(22) + MENU_SLACK;
+    if (c.nk_menu_begin_label(ctx, "FDD", c.NK_TEXT_LEFT, c.nk_vec2(230, h)) != 0) {
+        driveSection(ctx, .fdd, 0, "FDD1");
+        menuSep(ctx);
+        driveSection(ctx, .fdd, 1, "FDD2");
+        menuSep(ctx);
         // Batch convenience: mount a multi-disk archive's images, name-sorted,
         // into FDD1+FDD2 at once (the old auto-assign behavior).
+        c.nk_layout_row_dynamic(ctx, 22, 1);
         if (c.nk_menu_item_label(ctx, "Open FDD1+2 (auto)...", c.NK_TEXT_LEFT) != 0) {
             pending = .open_fdd_both;
         }
@@ -279,19 +345,13 @@ fn menuFdd(ctx: *c.nk_context) void {
 
 fn menuHdd(ctx: *c.nk_context) void {
     c.nk_layout_row_push(ctx, 45);
-    if (c.nk_menu_begin_label(ctx, "HDD", c.NK_TEXT_LEFT, c.nk_vec2(180, 180)) != 0) {
-        c.nk_layout_row_dynamic(ctx, 22, 1);
-        if (c.nk_menu_item_label(ctx, "Open IDE0...", c.NK_TEXT_LEFT) != 0) {
-            pending = .open_hdd0;
-        }
-        if (c.nk_menu_item_label(ctx, "Eject IDE0", c.NK_TEXT_LEFT) != 0) ejectHdd(0);
-        c.nk_layout_row_dynamic(ctx, 4, 1);
-        c.nk_spacing(ctx, 1);
-        c.nk_layout_row_dynamic(ctx, 22, 1);
-        if (c.nk_menu_item_label(ctx, "Open IDE1...", c.NK_TEXT_LEFT) != 0) {
-            pending = .open_hdd1;
-        }
-        if (c.nk_menu_item_label(ctx, "Eject IDE1", c.NK_TEXT_LEFT) != 0) ejectHdd(1);
+    // sections + one separator (rowH(4)) + slack.
+    const h = sectionHeight(.hdd, 0) + sectionHeight(.hdd, 1) +
+        rowH(4) + MENU_SLACK;
+    if (c.nk_menu_begin_label(ctx, "HDD", c.NK_TEXT_LEFT, c.nk_vec2(230, h)) != 0) {
+        driveSection(ctx, .hdd, 0, "IDE0");
+        menuSep(ctx);
+        driveSection(ctx, .hdd, 1, "IDE1");
         c.nk_menu_end(ctx);
     }
 }
@@ -449,6 +509,52 @@ fn drawAbout(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
 
 const disk_alloc = std.heap.page_allocator;
 
+// Per-drive mount state, so the drive menu can show what is loaded and offer
+// the source's other disks as one-click swap targets. The GUI exposes two FDD
+// and two HDD slots. Each Slot owns its ImageSet (the disk list + display
+// names + source label); `current` indexes the mounted disk within it.
+const Slot = struct {
+    set: ?archive.ImageSet = null,
+    current: ?usize = null,
+};
+var fdd_slots: [2]Slot = .{ .{}, .{} };
+var hdd_slots: [2]Slot = .{ .{}, .{} };
+
+fn slotsFor(kind: cli.DiskKind) *[2]Slot {
+    return switch (kind) {
+        .fdd => &fdd_slots,
+        .hdd => &hdd_slots,
+        .archive => unreachable,
+    };
+}
+
+// Store `set` (taking ownership) into the drive's slot, freeing any prior set.
+fn setSlot(kind: cli.DiskKind, drv: u32, set: archive.ImageSet, current: ?usize) void {
+    if (drv >= 2) {
+        var s = set;
+        s.deinit();
+        return;
+    }
+    const slot = &slotsFor(kind)[drv];
+    if (slot.set) |*old| old.deinit();
+    slot.* = .{ .set = set, .current = current };
+}
+
+fn clearSlot(kind: cli.DiskKind, drv: u32) void {
+    if (drv >= 2) return;
+    const slot = &slotsFor(kind)[drv];
+    if (slot.set) |*old| old.deinit();
+    slot.* = .{};
+}
+
+// Index of the image in `set` whose path equals `path`, if any.
+fn indexOfPath(set: archive.ImageSet, path: []const u8) ?usize {
+    for (set.images, 0..) |img, i| {
+        if (std.mem.eql(u8, img.path, path)) return i;
+    }
+    return null;
+}
+
 fn insertOne(kind: cli.DiskKind, drv: u32, path: [*:0]const u8) void {
     switch (kind) {
         .fdd => cz.np2_insert_fdd(drv, path),
@@ -475,6 +581,11 @@ fn openSingle(kind: cli.DiskKind, drv: u32) void {
     if (!archive.isArchive(path)) {
         insertOne(kind, drv, path.ptr);
         resetIfHdd(kind);
+        // Build a swap list from the folder's sibling images. Best-effort: a
+        // scan failure just leaves the drive mounted with no swap list.
+        if (archive.scanFolder(disk_alloc, path, kind)) |set| {
+            setSlot(kind, drv, set, indexOfPath(set, path));
+        } else |_| clearSlot(kind, drv);
         return;
     }
 
@@ -484,11 +595,11 @@ fn openSingle(kind: cli.DiskKind, drv: u32) void {
     };
 
     var count: usize = 0;
-    var only: ?[*:0]const u8 = null;
-    for (set.images) |img| {
+    var only_index: ?usize = null;
+    for (set.images, 0..) |img, i| {
         if (img.kind != kind) continue;
         count += 1;
-        only = img.path.ptr;
+        only_index = i;
     }
 
     switch (count) {
@@ -497,16 +608,18 @@ fn openSingle(kind: cli.DiskKind, drv: u32) void {
             set.deinit();
         },
         1 => {
-            insertOne(kind, drv, only.?);
+            const idx = only_index.?;
+            insertOne(kind, drv, set.images[idx].path.ptr);
             resetIfHdd(kind);
-            set.deinit();
+            setSlot(kind, drv, set, idx);
         },
         else => {
-            // Hand ownership of `set` to the modal; it frees it on choose/cancel.
-            ds_set = set;
+            // Hand ownership of `set` to the modal (initial-open mode); it frees
+            // it on cancel, or commits it to the drive slot on choose.
+            ds_owned = set;
             ds_kind = kind;
             ds_target = drv;
-            ds_reset_after = (kind == .hdd);
+            ds_on = true;
             ds_reopen = true;
         },
     }
@@ -520,6 +633,9 @@ fn openFddBoth() void {
 
     if (!archive.isArchive(path)) {
         insertOne(.fdd, 0, path.ptr);
+        if (archive.scanFolder(disk_alloc, path, .fdd)) |set| {
+            setSlot(.fdd, 0, set, indexOfPath(set, path));
+        } else |_| clearSlot(.fdd, 0);
         return;
     }
 
@@ -527,40 +643,80 @@ fn openFddBoth() void {
         std.debug.print("!! could not open archive '{s}': {s}\n", .{ path, @errorName(err) });
         return;
     };
-    defer set.deinit();
 
+    // Mount up to 2 fdd images, name-sorted, into FDD1/FDD2, remembering which
+    // image index each drive received.
+    var mounted: [2]?usize = .{ null, null };
     var slot: u32 = 0;
-    for (set.images) |img| {
+    for (set.images, 0..) |img, i| {
         if (img.kind != .fdd) continue;
         if (slot >= 2) {
             std.debug.print("!! ignoring extra fdd image (FDD1+2 holds 2): {s}\n", .{img.path});
             break;
         }
         insertOne(.fdd, slot, img.path.ptr);
+        mounted[slot] = i;
         slot += 1;
     }
-    if (slot == 0) std.debug.print("!! archive has no fdd image: {s}\n", .{path});
+    if (slot == 0) {
+        std.debug.print("!! archive has no fdd image: {s}\n", .{path});
+        set.deinit();
+        return;
+    }
+
+    // Give each occupied drive its own ImageSet so the menu can list the zip's
+    // disks with the right one lit. FDD1 adopts the original set; FDD2 gets a
+    // fresh extract (cache reuse keeps it cheap).
+    setSlot(.fdd, 0, set, mounted[0].?);
+    if (mounted[1]) |idx| {
+        if (archive.extractImages(disk_alloc, path)) |s| {
+            setSlot(.fdd, 1, s, idx);
+        } else |_| clearSlot(.fdd, 1);
+    }
 }
 
-// --- Disk-selection modal (shown when an archive holds multiple images) ---
-
-var ds_set: ?archive.ImageSet = null;
+// --- Disk-selection modal ---
+//
+// The drive menu can't scroll or overflow the window, so it shows only the
+// mounted disk; this scrollable modal is where the full disk list lives. It is
+// opened either on an initial multi-disk archive open, or by clicking the
+// source name in the drive menu to swap disks.
+//
+// The drive slot owns its ImageSet. In swap mode the modal just borrows the
+// slot's set. In initial-open mode the freshly-extracted set is not yet in a
+// slot, so the modal owns it (`ds_owned`) until the user commits a choice.
+var ds_on: bool = false;
 var ds_kind: cli.DiskKind = .fdd;
 var ds_target: u32 = 0;
-var ds_reset_after: bool = false;
+var ds_owned: ?archive.ImageSet = null; // non-null => initial open; null => swap
 var ds_reopen: bool = false;
 
 fn ds_active() bool {
-    return ds_set != null;
+    return ds_on;
 }
 
-fn ds_clear() void {
-    if (ds_set) |*s| s.deinit();
-    ds_set = null;
+// Open the modal in swap mode for a drive that already holds a set.
+fn openSwap(kind: cli.DiskKind, drv: u32) void {
+    if (drv >= 2 or slotsFor(kind)[drv].set == null) return;
+    ds_kind = kind;
+    ds_target = drv;
+    ds_owned = null;
+    ds_on = true;
+    ds_reopen = true;
 }
 
 fn drawDiskSelect(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
-    const set = if (ds_set) |*s| s else return;
+    // The list source: the freshly-extracted set (initial open) or the drive's
+    // existing set (swap). If neither is present, nothing to show.
+    const set: *const archive.ImageSet = if (ds_owned) |*s|
+        s
+    else if (slotsFor(ds_kind)[ds_target].set) |*s|
+        s
+    else {
+        ds_on = false;
+        return;
+    };
+    const cur = slotsFor(ds_kind)[ds_target].current;
 
     const dw: f32 = 360;
     const dh: f32 = 300;
@@ -575,18 +731,20 @@ fn drawDiskSelect(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
         c.nk_window_set_bounds(ctx, "Select Disk", bounds);
     }
 
-    var chosen: ?[*:0]const u8 = null;
+    var chosen: ?usize = null;
     var cancel = false;
     if (c.nk_begin(ctx, "Select Disk", bounds, flags) != 0) {
         c.nk_layout_row_dynamic(ctx, 22, 1);
-        c.nk_label(ctx, "Choose a disk to mount:", c.NK_TEXT_LEFT);
+        c.nk_label(ctx, set.source.ptr, c.NK_TEXT_LEFT);
 
         c.nk_layout_row_dynamic(ctx, 200, 1);
         if (c.nk_group_begin(ctx, "ds_list", c.NK_WINDOW_BORDER) != 0) {
             c.nk_layout_row_dynamic(ctx, 26, 1);
-            for (set.images) |img| {
+            for (set.images, 0..) |img, i| {
                 if (img.kind != ds_kind) continue;
-                if (c.nk_button_label(ctx, img.name.ptr) != 0) chosen = img.path.ptr;
+                const lit = if (cur) |ci| ci == i else false;
+                const sym: c_int = if (lit) c.NK_SYMBOL_CIRCLE_SOLID else c.NK_SYMBOL_NONE;
+                if (c.nk_button_symbol_label(ctx, @intCast(sym), img.name.ptr, c.NK_TEXT_LEFT) != 0) chosen = i;
             }
             c.nk_group_end(ctx);
         }
@@ -597,21 +755,54 @@ fn drawDiskSelect(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
     c.nk_end(ctx);
     if (c.nk_window_is_hidden(ctx, "Select Disk") != 0) cancel = true;
 
-    if (chosen) |path| {
-        insertOne(ds_kind, ds_target, path);
-        if (ds_reset_after) cz.pccore_reset();
-        ds_clear();
+    if (chosen) |idx| {
+        insertOne(ds_kind, ds_target, set.images[idx].path.ptr);
+        resetIfHdd(ds_kind);
+        if (ds_owned) |_| {
+            // Commit the owned set into the drive slot (frees any prior set).
+            const owned = ds_owned.?;
+            ds_owned = null;
+            setSlot(ds_kind, ds_target, owned, idx);
+        } else {
+            slotsFor(ds_kind)[ds_target].current = idx;
+        }
+        ds_on = false;
     } else if (cancel) {
-        ds_clear();
+        // Initial-open cancel drops the freshly-extracted set (nothing mounted);
+        // swap cancel leaves the slot untouched.
+        if (ds_owned) |*s| {
+            s.deinit();
+            ds_owned = null;
+        }
+        ds_on = false;
     }
 }
 
 fn ejectFdd(drv: u32) void {
+    clearSlot(.fdd, drv);
     cz.np2_eject_fdd(drv);
 }
 
 fn ejectHdd(drv: u32) void {
+    clearSlot(.hdd, drv);
     cz.np2_eject_hdd(drv);
     // Reboot so the machine comes back up without the ejected drive.
     cz.pccore_reset();
+}
+
+// Register an already-mounted disk (e.g. from CLI startup) so the menu shows
+// its source's disk list. Best-effort: scans `path`'s folder for siblings.
+pub fn registerMount(kind: cli.DiskKind, drv: u32, path: [:0]const u8) void {
+    if (drv >= 2) return;
+    if (archive.scanFolder(disk_alloc, path, kind)) |set| {
+        setSlot(kind, drv, set, indexOfPath(set, path));
+    } else |_| {}
+}
+
+// Free all drive slots; call at shutdown.
+pub fn freeSlots() void {
+    for (0..2) |i| {
+        clearSlot(.fdd, @intCast(i));
+        clearSlot(.hdd, @intCast(i));
+    }
 }

@@ -36,11 +36,15 @@ pub const Image = struct {
     kind: cli.DiskKind, // always .fdd or .hdd
 };
 
-/// The set of disk images unpacked from one archive. All `Image.path` strings
-/// are backed by `arena`; call `deinit` once the paths are no longer needed
-/// (the extracted files on disk stay in the cache and are not removed).
+/// The set of disk images unpacked from one archive (or scanned from a folder).
+/// All `Image.path`/`Image.name` and `source` strings are backed by `arena`;
+/// call `deinit` once they are no longer needed (the files on disk stay put).
 pub const ImageSet = struct {
     images: []Image,
+    /// Human-facing label for the source the images came from: the archive
+    /// filename or the containing folder name (ASCII-sanitized). Shown as the
+    /// section header in the drive menu's disk-swap list.
+    source: [:0]const u8,
     arena: std.heap.ArenaAllocator,
 
     pub fn deinit(self: *ImageSet) void {
@@ -82,13 +86,59 @@ pub fn extractImages(allocator: std.mem.Allocator, archive_path: [:0]const u8) E
         return Error.ExtractFailed;
     };
 
-    return collectImages(io, allocator, cache_dir) catch |e| switch (e) {
-        error.NoDiskImageInArchive => Error.NoDiskImageInArchive,
-        else => blk: {
+    var set = collectImages(io, allocator, cache_dir) catch |e| switch (e) {
+        error.NoDiskImageInArchive => return Error.NoDiskImageInArchive,
+        else => {
             std.debug.print("!! could not scan extracted archive '{s}': {s}\n", .{ cache_dir, @errorName(e) });
-            break :blk Error.ExtractFailed;
+            return Error.ExtractFailed;
         },
     };
+    // Label the swap list with the original archive filename (sanitized).
+    const a = set.arena.allocator();
+    set.source = displaySource(a, basename(archive_path), "Archive") catch return Error.OutOfMemory;
+    return set;
+}
+
+/// Scan the folder containing `file_path` for sibling images of `kind` (so the
+/// drive menu can offer them as swap targets), returning them sorted by path.
+/// `source` is the folder name. Real on-disk paths are used directly; the core
+/// opens UTF-8 paths, so non-ASCII folders work even though their display names
+/// fall back to "Disk N".
+pub fn scanFolder(allocator: std.mem.Allocator, file_path: [:0]const u8, kind: cli.DiskKind) Error!ImageSet {
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const dir_path = dirname(file_path);
+    if (dir_path.len == 0) return Error.ExtractFailed;
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    errdefer arena.deinit();
+    const a = arena.allocator();
+
+    var dir = std.Io.Dir.cwd().openDir(io, dir_path, .{ .iterate = true }) catch
+        return Error.ExtractFailed;
+    defer dir.close(io);
+
+    var list: std.ArrayList(Image) = .empty;
+    var it = dir.iterate();
+    while (it.next(io) catch return Error.ExtractFailed) |entry| {
+        if (entry.kind != .file) continue;
+        if (cli.classifyExt(entry.name) != kind) continue;
+        const full = std.fmt.allocPrintSentinel(a, "{s}/{s}", .{ dir_path, entry.name }, 0) catch
+            return Error.OutOfMemory;
+        try list.append(a, .{ .path = full, .name = "", .kind = kind });
+    }
+
+    if (list.items.len == 0) return Error.NoDiskImageInArchive;
+
+    const images = list.toOwnedSlice(a) catch return Error.OutOfMemory;
+    std.mem.sort(Image, images, {}, lessByPath);
+    for (images, 0..) |*img, i| {
+        img.name = displayName(a, basename(img.path), i) catch return Error.OutOfMemory;
+    }
+    const source = displaySource(a, basename(dir_path), "Folder") catch return Error.OutOfMemory;
+    return .{ .images = images, .source = source, .arena = arena };
 }
 
 const chunk_len: u64 = 64 * 1024;
@@ -297,13 +347,35 @@ fn collectImages(io: std.Io, allocator: std.mem.Allocator, cache_dir: []const u8
     const images = try list.toOwnedSlice(a);
     std.mem.sort(Image, images, {}, lessByPath);
     for (images, 0..) |*img, i| {
-        const label = stripIndexPrefix(basename(img.path));
-        img.name = if (hasBlankStem(label))
-            try std.fmt.allocPrintSentinel(a, "Disk {d}", .{i + 1}, 0)
-        else
-            try a.dupeZ(u8, label);
+        img.name = try displayName(a, stripIndexPrefix(basename(img.path)), i);
     }
-    return .{ .images = images, .arena = arena };
+    // `source` is filled in by extractImages, which knows the archive name.
+    return .{ .images = images, .source = "", .arena = arena };
+}
+
+/// The parent-directory portion of `path` (everything before the last '/'),
+/// or "" if there is none. POSIX-only; the app runs on macOS/Linux.
+fn dirname(path: []const u8) []const u8 {
+    const i = std.mem.lastIndexOfScalar(u8, path, '/') orelse return "";
+    return if (i == 0) "/" else path[0..i];
+}
+
+/// Derive a renderable disk label from a raw basename: the ASCII-sanitized name,
+/// or "Disk N" (1-based) when nothing renderable survives (all-CP932 names).
+fn displayName(a: std.mem.Allocator, raw: []const u8, index: usize) ![:0]const u8 {
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const san = sanitizeAscii(&buf, raw);
+    if (san.len == 0 or hasBlankStem(san))
+        return std.fmt.allocPrintSentinel(a, "Disk {d}", .{index + 1}, 0);
+    return a.dupeZ(u8, san);
+}
+
+/// Derive a renderable source label (archive/folder name) from a raw basename,
+/// falling back to `fallback` when sanitization leaves nothing.
+fn displaySource(a: std.mem.Allocator, raw: []const u8, fallback: []const u8) ![:0]const u8 {
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const san = sanitizeAscii(&buf, raw);
+    return a.dupeZ(u8, if (san.len == 0) fallback else san);
 }
 
 /// Drop the "<NNNN>_" extraction prefix that unpackImages prepends, recovering
@@ -366,4 +438,28 @@ test "hasBlankStem — extension-only labels fall back to Disk N" {
     try testing.expect(hasBlankStem("_ .hdi"));
     try testing.expect(!hasBlankStem("GAME_A.FDI"));
     try testing.expect(!hasBlankStem("disk1.fdi"));
+}
+
+test "dirname — parent directory of a path" {
+    try testing.expectEqualStrings("/a/b", dirname("/a/b/c.fdi"));
+    try testing.expectEqualStrings("/", dirname("/c.fdi"));
+    try testing.expectEqualStrings("", dirname("c.fdi"));
+}
+
+test "displayName — ASCII kept, non-ASCII falls back to Disk N" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    try testing.expectEqualStrings("GAME_A.FDI", try displayName(a, "GAME_A.FDI", 0));
+    // All-CP932 basename sanitizes to just the extension → "Disk N" (1-based).
+    try testing.expectEqualStrings("Disk 3", try displayName(a, "\x8b\xe0\x8c\xed.fdi", 2));
+    try testing.expectEqualStrings("Disk 1", try displayName(a, "\x8b\xe0\x8c\xed", 0));
+}
+
+test "displaySource — sanitized name or fallback" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    try testing.expectEqualStrings("GAME.ZIP", try displaySource(a, "GAME.ZIP", "Archive"));
+    try testing.expectEqualStrings("Folder", try displaySource(a, "\x8b\xe0\x8c\xed", "Folder"));
 }
