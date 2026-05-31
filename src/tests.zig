@@ -4,6 +4,7 @@ test {
     _ = @import("audio.zig");
     _ = @import("platform.zig");
     _ = @import("cli.zig");
+    _ = @import("archive.zig");
     _ = @import("frame_scheduler.zig");
     _ = @import("ui.zig");
 }
