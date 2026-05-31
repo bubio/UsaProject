@@ -54,10 +54,14 @@ jobs:
           Compress-Archive -Path package\* -DestinationPath UsaProject-windows.zip
 
       - name: Upload artifact
+        # Upload the raw package contents, NOT the .zip. upload-artifact always
+        # zips whatever path it is given, so handing it a .zip yields a
+        # zip-inside-a-zip on download. The pre-made zip is kept only for the
+        # release asset below, where it is uploaded as-is.
         uses: actions/upload-artifact@v4
         with:
           name: UsaProject-windows
-          path: UsaProject-windows.zip
+          path: package\*
           if-no-files-found: error
 
       - name: Upload release asset

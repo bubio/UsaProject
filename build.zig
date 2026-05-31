@@ -43,6 +43,9 @@ pub fn build(b: *std.Build) void {
             exe.root_module.linkSystemLibrary("ole32", .{});
             exe.root_module.linkSystemLibrary("uuid", .{});
             exe.root_module.linkSystemLibrary("shell32", .{});
+            // Link as a GUI app (not console) so launching the .exe does not
+            // also spawn a console ("DOS") window alongside the main window.
+            exe.subsystem = .Windows;
             // Embed a manifest that sets the process ACP to UTF-8 so
             // C runtime fopen()/CRT path APIs round-trip non-ASCII paths.
             exe.root_module.addWin32ResourceFile(.{
