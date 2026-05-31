@@ -9,6 +9,7 @@ const c = nk.c;
 const ui_dialog = @import("ui_dialog.zig");
 const platform = @import("platform.zig");
 const cli = @import("cli.zig");
+const archive = @import("archive.zig");
 
 pub const MENU_HEIGHT: u32 = 26;
 pub const STATUS_HEIGHT: u32 = 22;
@@ -86,9 +87,11 @@ fn extsToSpec(comptime exts: []const []const u8) [:0]const u8 {
 
 const fdd_filters = [_]nfd.Filter{
     .{ .name = "FDD Images", .spec = extsToSpec(&cli.fdd_exts) },
+    .{ .name = "Archives (zip)", .spec = extsToSpec(&cli.archive_exts) },
 };
 const hdd_filters = [_]nfd.Filter{
     .{ .name = "HDD Images", .spec = extsToSpec(&cli.hdd_exts) },
+    .{ .name = "Archives (zip)", .spec = extsToSpec(&cli.archive_exts) },
 };
 
 const PendingAction = enum {
@@ -430,20 +433,62 @@ fn drawAbout(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
 
 const disk_alloc = std.heap.page_allocator;
 
+// Mount a dialog-selected path. An archive (.zip) is unpacked and the images
+// of `kind` it contains are mounted into consecutive drives starting at `drv`
+// (up to the per-kind drive limit), in filename order. A plain image mounts
+// into `drv`. Returns true if at least one image was inserted.
+fn insertSelection(kind: cli.DiskKind, drv: u32, path: [:0]const u8) bool {
+    const limit: u32 = if (kind == .fdd) cli.max_fdd else cli.max_hdd;
+    if (!archive.isArchive(path)) {
+        insertOne(kind, drv, path.ptr);
+        return true;
+    }
+
+    var set = archive.extractImages(disk_alloc, path) catch |err| {
+        std.debug.print("!! could not open archive '{s}': {s}\n", .{ path, @errorName(err) });
+        return false;
+    };
+    defer set.deinit();
+
+    var slot = drv;
+    var inserted = false;
+    for (set.images) |img| {
+        if (img.kind != kind) continue;
+        if (slot >= limit) {
+            std.debug.print("!! ignoring extra {s} image (max {d}): {s}\n", .{ @tagName(kind), limit, img.path });
+            break;
+        }
+        insertOne(kind, slot, img.path.ptr);
+        slot += 1;
+        inserted = true;
+    }
+    if (!inserted) std.debug.print("!! archive has no {s} image: {s}\n", .{ @tagName(kind), path });
+    return inserted;
+}
+
+fn insertOne(kind: cli.DiskKind, drv: u32, path: [*:0]const u8) void {
+    switch (kind) {
+        .fdd => cz.np2_insert_fdd(drv, path),
+        .hdd => cz.np2_insert_hdd(drv, path),
+        .archive => unreachable,
+    }
+}
+
 fn openFdd(drv: u32) void {
     if (nfd.openDialog(disk_alloc, &fdd_filters) catch null) |path| {
         defer disk_alloc.free(path);
-        cz.np2_insert_fdd(drv, path.ptr);
+        _ = insertSelection(.fdd, drv, path);
     }
 }
 
 fn openHdd(drv: u32) void {
     if (nfd.openDialog(disk_alloc, &hdd_filters) catch null) |path| {
         defer disk_alloc.free(path);
-        cz.np2_insert_hdd(drv, path.ptr);
-        // HDD changes are only picked up by diskdrv_hddbind(), which runs as
-        // part of a machine reset — reboot so the new image is recognized.
-        cz.pccore_reset();
+        if (insertSelection(.hdd, drv, path)) {
+            // HDD changes are only picked up by diskdrv_hddbind(), which runs
+            // as part of a machine reset — reboot so the new image is recognized.
+            cz.pccore_reset();
+        }
     }
 }
 

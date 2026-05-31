@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub const DiskKind = enum { fdd, hdd };
+pub const DiskKind = enum { fdd, hdd, archive };
 
 pub const Disk = struct {
     kind: DiskKind,
@@ -49,6 +49,12 @@ pub const hdd_exts = [_][]const u8{
     ".thd", ".nhd", ".hdi", ".vhd", ".slh", ".hdn", ".hdd", ".cmd",
 };
 
+// Archives are unpacked by the Zig app layer (see archive.zig); the contained
+// FDD/HDD images are then mounted. The real disk kind is only known after
+// inspecting the archive, so a positional archive arg is classified as
+// `.archive` and resolved later.
+pub const archive_exts = [_][]const u8{".zip"};
+
 pub const usage_text =
     \\Usage: UsaProject [options] [DISK_PATH ...]
     \\
@@ -61,10 +67,14 @@ pub const usage_text =
     \\               .nfd .fdd .img .ima .bin .fim .flp .hd4 .hd5 .hd9
     \\               .h01 .hdb .ddb .dd6 .dd9 .dcp .dcu
     \\  HDD (max 4): .thd .nhd .hdi .vhd .slh .hdn .hdd .cmd
+    \\  Archive:     .zip (contained FDD/HDD images are mounted into free
+    \\               drives in filename order)
     \\
 ;
 
-fn classifyExt(path: []const u8) ?DiskKind {
+/// Classify a path by its extension. Returns null for unknown extensions.
+/// Shared with archive.zig to classify images extracted from an archive.
+pub fn classifyExt(path: []const u8) ?DiskKind {
     const dot = std.mem.lastIndexOfScalar(u8, path, '.') orelse return null;
     const ext_raw = path[dot..];
     var buf: [8]u8 = undefined;
@@ -72,6 +82,7 @@ fn classifyExt(path: []const u8) ?DiskKind {
     const ext = std.ascii.lowerString(buf[0..ext_raw.len], ext_raw);
     for (fdd_exts) |e| if (std.mem.eql(u8, e, ext)) return .fdd;
     for (hdd_exts) |e| if (std.mem.eql(u8, e, ext)) return .hdd;
+    for (archive_exts) |e| if (std.mem.eql(u8, e, ext)) return .archive;
     return null;
 }
 
@@ -127,7 +138,7 @@ pub fn parse(allocator: std.mem.Allocator, args: []const []const u8) ParseError!
         if (std.mem.startsWith(u8, a, "-")) {
             return error.UnknownOption;
         }
-        // Positional: disk image
+        // Positional: disk image or archive
         const kind = classifyExt(a) orelse return error.UnknownExtension;
         switch (kind) {
             .fdd => {
@@ -138,6 +149,10 @@ pub fn parse(allocator: std.mem.Allocator, args: []const []const u8) ParseError!
                 if (hdd_count >= max_hdd) return error.TooManyHdd;
                 hdd_count += 1;
             },
+            // An archive's real kind (and how many drives it fills) is unknown
+            // until it is unpacked, so it is not counted here; slot limits are
+            // enforced when the contained images are mounted.
+            .archive => {},
         }
         const path = try allocator.dupeZ(u8, a);
         try disks.append(allocator, .{ .kind = kind, .path = path });
@@ -241,6 +256,29 @@ test "parse — too many HDDs" {
 
 test "parse — unknown extension" {
     try testing.expectError(error.UnknownExtension, parse(testing.allocator, &.{"readme.txt"}));
+}
+
+test "parse — positional archive yields .archive" {
+    var opts = try parse(testing.allocator, &.{"game.zip"});
+    defer opts.deinit(testing.allocator);
+    try testing.expectEqual(@as(usize, 1), opts.disks.len);
+    try testing.expectEqual(DiskKind.archive, opts.disks[0].kind);
+    try testing.expectEqualStrings("game.zip", opts.disks[0].path);
+}
+
+test "parse — archive not counted against FDD limit" {
+    // Four FDDs already fill every slot; an extra archive must still parse,
+    // because its contents (and slot usage) are unknown until unpacked.
+    var opts = try parse(testing.allocator, &.{ "a.d88", "b.d88", "c.d88", "d.d88", "more.zip" });
+    defer opts.deinit(testing.allocator);
+    try testing.expectEqual(@as(usize, 5), opts.disks.len);
+    try testing.expectEqual(DiskKind.archive, opts.disks[4].kind);
+}
+
+test "parse — archive extension case-insensitive" {
+    var opts = try parse(testing.allocator, &.{"GAME.ZIP"});
+    defer opts.deinit(testing.allocator);
+    try testing.expectEqual(DiskKind.archive, opts.disks[0].kind);
 }
 
 test "parse — disk paths are sentinel-terminated" {

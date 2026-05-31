@@ -10,6 +10,7 @@ const c = cz.c;
 const pixel = @import("pixel.zig");
 const platform = @import("platform.zig");
 const cli = @import("cli.zig");
+const archive = @import("archive.zig");
 const scheduler = @import("frame_scheduler.zig");
 const input = @import("input.zig");
 const audio = @import("audio.zig");
@@ -70,6 +71,11 @@ const State = struct {
 var state: State = .{};
 var fb_rgba: [FB_WIDTH * FB_HEIGHT]u32 = undefined;
 var parsed_opts: ?cli.Options = null;
+// Disk list after archive expansion: archives are unpacked into their
+// contained FDD/HDD images here. `image_sets` owns the extracted path strings
+// referenced by the expanded disks; both are freed in cleanup().
+var expanded_disks: []cli.Disk = &.{};
+var image_sets: []archive.ImageSet = &.{};
 var last_emu_ns: i128 = 0;
 var skip_counter: u32 = 0;
 const nowait_frames_per_tick: u32 = 16;
@@ -118,14 +124,17 @@ export fn init() void {
     config.load();
     if (parsed_opts) |opts| {
         if (opts.model) |m| cz.np2_set_model(m.ptr);
+        // Unpack any archives (.zip) into their contained images. Runs after
+        // setupDataDir() because the extraction cache lives under the data dir.
+        expandDisks(opts);
         // HDD images must be registered into np2cfg before pccore_reset(),
         // because the reset's diskdrv_hddbind() binds drives from the config.
-        configureHdds(opts);
+        configureHdds(expanded_disks);
     }
     cz.pccore_init();
     cz.pccore_reset();
     if (parsed_opts) |opts| {
-        insertFdds(opts);
+        insertFdds(expanded_disks);
         if (opts.audio_capture) |p| {
             _ = cz.usa_audio_capture_open(p.ptr, if (opts.audio_autotest) 1 else 0);
         }
@@ -189,30 +198,71 @@ export fn init() void {
     platform.os.lockWindow(FB_WIDTH, FB_HEIGHT, ui.MENU_HEIGHT + ui.STATUS_HEIGHT);
 }
 
+// Build `expanded_disks` from the parsed disks, unpacking each archive into the
+// FDD/HDD images it contains. `image_sets` retains ownership of the extracted
+// path strings. Failed/empty archives are warned about and skipped.
+fn expandDisks(opts: cli.Options) void {
+    const allocator = std.heap.page_allocator;
+    var disks: std.ArrayList(cli.Disk) = .empty;
+    var sets: std.ArrayList(archive.ImageSet) = .empty;
+
+    for (opts.disks) |d| {
+        if (d.kind == .archive) {
+            var set = archive.extractImages(allocator, d.path) catch |err| {
+                std.debug.print("!! skipping archive '{s}': {s}\n", .{ d.path, @errorName(err) });
+                continue;
+            };
+            for (set.images) |img| {
+                disks.append(allocator, .{ .kind = img.kind, .path = img.path }) catch {
+                    set.deinit();
+                    break;
+                };
+            } else {
+                sets.append(allocator, set) catch set.deinit();
+                continue;
+            }
+            // append failed mid-loop: stop expanding further to avoid leaks.
+            break;
+        }
+        disks.append(allocator, d) catch break;
+    }
+
+    expanded_disks = disks.toOwnedSlice(allocator) catch &.{};
+    image_sets = sets.toOwnedSlice(allocator) catch &.{};
+}
+
 // HDDs are registered into np2cfg before pccore_reset() so the reset's
 // diskdrv_hddbind() opens and boots them.
-fn configureHdds(opts: cli.Options) void {
+fn configureHdds(disks: []const cli.Disk) void {
     var hdd_drv: c_uint = 0;
-    for (opts.disks) |d| switch (d.kind) {
+    for (disks) |d| switch (d.kind) {
         .hdd => {
+            if (hdd_drv >= cli.max_hdd) {
+                std.debug.print("!! ignoring extra HDD image (max {d}): {s}\n", .{ cli.max_hdd, d.path });
+                continue;
+            }
             std.debug.print(">>> HDD{d}: {s}\n", .{ hdd_drv, d.path });
             cz.np2_insert_hdd(hdd_drv, d.path.ptr);
             hdd_drv += 1;
         },
-        .fdd => {},
+        .fdd, .archive => {},
     };
 }
 
 // FDDs are inserted after pccore_reset() via the diskdrv ready queue.
-fn insertFdds(opts: cli.Options) void {
+fn insertFdds(disks: []const cli.Disk) void {
     var fdd_drv: c_uint = 0;
-    for (opts.disks) |d| switch (d.kind) {
+    for (disks) |d| switch (d.kind) {
         .fdd => {
+            if (fdd_drv >= cli.max_fdd) {
+                std.debug.print("!! ignoring extra FDD image (max {d}): {s}\n", .{ cli.max_fdd, d.path });
+                continue;
+            }
             std.debug.print(">>> FDD{d}: {s}\n", .{ fdd_drv, d.path });
             cz.np2_insert_fdd(fdd_drv, d.path.ptr);
             fdd_drv += 1;
         },
-        .hdd => {},
+        .hdd, .archive => {},
     };
 }
 
@@ -369,6 +419,10 @@ export fn cleanup() void {
     cz.usa_audio_capture_close();
     config.save();
     cz.pccore_term();
+    const allocator = std.heap.page_allocator;
+    for (image_sets) |*s| s.deinit();
+    allocator.free(image_sets);
+    allocator.free(expanded_disks);
     nfd.deinit();
     ui.shutdown();
     nk.shutdown();
