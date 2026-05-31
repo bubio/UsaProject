@@ -1,0 +1,45 @@
+# nfpm config for building Linux .deb / .rpm packages.
+# https://nfpm.goreleaser.com/configuration/
+#
+# VERSION is injected from the environment (the release tag, without the leading
+# "v") by the CI workflow before running `nfpm package`.
+
+name: usaproject
+arch: amd64
+platform: linux
+version: ${VERSION}
+maintainer: bubio <bubio66@gmail.com>
+description: |
+  NEC PC-9801/PC-9821 emulator built on the NP2kai core with a sokol frontend.
+vendor: bubio
+homepage: https://github.com/bubio/UsaProject
+section: games
+priority: optional
+
+contents:
+  - src: ./zig-out/bin/UsaProject
+    dst: /usr/bin/usaproject
+    file_info:
+      mode: 0755
+  - src: ./packaging/usaproject.desktop
+    dst: /usr/share/applications/usaproject.desktop
+  - src: ./assets/AppIcon.png
+    dst: /usr/share/pixmaps/usaproject.png
+
+overrides:
+  deb:
+    depends:
+      - libasound2
+      - libgl1
+      - libx11-6
+      - libxi6
+      - libxcursor1
+      - libdbus-1-3
+  rpm:
+    depends:
+      - alsa-lib
+      - mesa-libGL
+      - libX11
+      - libXi
+      - libXcursor
+      - dbus-libs

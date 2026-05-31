@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=UsaProject
+GenericName=PC-98 Emulator
+Comment=NEC PC-9801/PC-9821 emulator (NP2kai core)
+Exec=usaproject
+Icon=usaproject
+Terminal=false
+Categories=Game;Emulator;
+Keywords=PC-98;PC-9801;PC-9821;NP2;Neko Project;emulator;

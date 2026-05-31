@@ -1,7 +1,11 @@
 # Zig build artifacts
 .zig-cache/
 zig-out/
+zig-out-x64/
 zig-pkg/
+
+# Release packaging output (deb/rpm via nfpm)
+dist/
 
 # Local Zig toolchain
 tools/zig-mach/
