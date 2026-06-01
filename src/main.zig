@@ -18,6 +18,7 @@ const ui = @import("ui.zig");
 const nfd = @import("nfd.zig");
 const nk = @import("nk.zig");
 const config = @import("config.zig");
+const history = @import("history.zig");
 
 const app_icon_rgba = @embedFile("AppIcon128.raw");
 
@@ -439,6 +440,7 @@ export fn frame() void {
 export fn cleanup() void {
     cz.usa_audio_capture_close();
     config.save();
+    history.deinit(); // after save reads the entries
     cz.pccore_term();
     const allocator = std.heap.page_allocator;
     for (image_sets) |*s| s.deinit();
