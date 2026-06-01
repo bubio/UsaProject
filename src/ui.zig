@@ -10,6 +10,7 @@ const ui_dialog = @import("ui_dialog.zig");
 const platform = @import("platform.zig");
 const cli = @import("cli.zig");
 const archive = @import("archive.zig");
+const input = @import("input.zig");
 
 pub const MENU_HEIGHT: u32 = 26;
 pub const STATUS_HEIGHT: u32 = 22;
@@ -388,6 +389,16 @@ fn menuOther(ctx: *c.nk_context) void {
 
 // --- Status Bar ---
 
+// Width the drive-lamp group occupies: two groups ("FDD:" / "HDD:"), each a
+// caption plus two lamps, with a gap between the groups. Must match the layout
+// math in drawDriveLamps / drawLampGroup below.
+const lamps_col_w: f32 = 150;
+// Status-bar volume (master) range, mirroring np2cfg.vol_master (0..100).
+const vol_max: f32 = 100;
+// Volume to restore when the speaker icon un-mutes; tracked so a mute/unmute
+// round-trip returns to the level the user had set.
+var pre_mute_vol: u8 = 100;
+
 fn drawStatusBar(ctx: *c.nk_context, win_w: u32, win_h: u32, st: State) void {
     const y: f32 = @floatFromInt(win_h - STATUS_HEIGHT);
     const w: f32 = @floatFromInt(win_w);
@@ -400,23 +411,155 @@ fn drawStatusBar(ctx: *c.nk_context, win_w: u32, win_h: u32, st: State) void {
     _ = c.nk_style_push_vec2(ctx, &ctx.style.window.padding, c.nk_vec2(12, 2));
     defer _ = c.nk_style_pop_vec2(ctx);
     if (c.nk_begin(ctx, "StatusBar", bounds, c.NK_WINDOW_NO_SCROLLBAR) != 0) {
+        // Layout: Architecture | Clock | FDD/HDD | Volume ....(spacer).... Mouse | FPS.
+        // Vertical bars are drawn as thin separator cells between groups.
         c.nk_layout_row_template_begin(ctx, h - 4);
-        c.nk_layout_row_template_push_static(ctx, 180);
-        c.nk_layout_row_template_push_variable(ctx, 100);
-        c.nk_layout_row_template_push_static(ctx, 80);
+        c.nk_layout_row_template_push_static(ctx, 44); // model (Architecture)
+        c.nk_layout_row_template_push_static(ctx, 9); //  separator
+        c.nk_layout_row_template_push_static(ctx, 66); // clock
+        c.nk_layout_row_template_push_static(ctx, 9); //  separator
+        c.nk_layout_row_template_push_static(ctx, lamps_col_w); // FDD/HDD lamps
+        c.nk_layout_row_template_push_static(ctx, 9); //  separator
+        c.nk_layout_row_template_push_static(ctx, 22); // volume (speaker) icon
+        c.nk_layout_row_template_push_static(ctx, 80); // volume slider
+        c.nk_layout_row_template_push_variable(ctx, 10); // flexible spacer
+        c.nk_layout_row_template_push_static(ctx, 9); //  separator
+        c.nk_layout_row_template_push_static(ctx, 24); // mouse-capture icon
+        c.nk_layout_row_template_push_static(ctx, 9); //  separator
+        c.nk_layout_row_template_push_static(ctx, 66); // FPS
         c.nk_layout_row_template_end(ctx);
 
-        var mbuf: [48]u8 = undefined;
-        const mline = std.fmt.bufPrintZ(&mbuf, "{s}  {d:.1}MHz", .{ st.model, st.cpu_mhz }) catch "?";
+        var mbuf: [16]u8 = undefined;
+        const mline = std.fmt.bufPrintZ(&mbuf, "{s}", .{st.model}) catch "?";
         c.nk_label(ctx, mline.ptr, c.NK_TEXT_LEFT);
+        drawSeparatorCell(ctx);
+
+        var cbuf: [16]u8 = undefined;
+        const cline = std.fmt.bufPrintZ(&cbuf, "{d:.1}MHz", .{st.cpu_mhz}) catch "?";
+        c.nk_label(ctx, cline.ptr, c.NK_TEXT_LEFT);
+        drawSeparatorCell(ctx);
 
         drawDriveLamps(ctx, st.fdd_access, st.hdd_access);
+        drawSeparatorCell(ctx);
+
+        drawVolumeIcon(ctx);
+        drawVolumeSlider(ctx);
+
+        c.nk_spacing(ctx, 1); // flexible spacer pushes the rest to the right edge
+        drawSeparatorCell(ctx);
+
+        drawMouseCaptureIcon(ctx);
+        drawSeparatorCell(ctx);
 
         var fbuf: [16]u8 = undefined;
         const fline = std.fmt.bufPrintZ(&fbuf, "{d:.1} FPS", .{st.fps}) catch "? FPS";
         c.nk_label(ctx, fline.ptr, c.NK_TEXT_RIGHT);
     }
     c.nk_end(ctx);
+}
+
+// Consume one layout cell and stroke a thin vertical divider down its middle,
+// rendering the "|" separators between status-bar groups.
+fn drawSeparatorCell(ctx: *c.nk_context) void {
+    const canvas = c.nk_window_get_canvas(ctx);
+    var b: c.struct_nk_rect = undefined;
+    _ = c.nk_widget(&b, ctx);
+    const cx = b.x + b.w / 2.0;
+    const pad: f32 = 3;
+    c.nk_stroke_line(canvas, cx, b.y + pad, cx, b.y + b.h - pad, 1.0, c.nk_rgba(0xC0, 0xC0, 0xC0, 0x60));
+}
+
+// Speaker icon that doubles as a mute toggle. Filled bright when audible, dim
+// with a red slash when muted (vol_master == 0). Clicking flips mute state.
+fn drawVolumeIcon(ctx: *c.nk_context) void {
+    const canvas = c.nk_window_get_canvas(ctx);
+    var b: c.struct_nk_rect = undefined;
+    _ = c.nk_widget(&b, ctx);
+
+    const cfg = &cz.c.np2cfg;
+    const muted = cfg.vol_master == 0;
+
+    // Toggle mute on a click anywhere inside the icon cell.
+    if (c.nk_input_is_mouse_click_in_rect(&ctx.input, c.NK_BUTTON_LEFT, b) != 0) {
+        if (cfg.vol_master > 0) {
+            pre_mute_vol = cfg.vol_master;
+            cfg.vol_master = 0;
+        } else {
+            cfg.vol_master = if (pre_mute_vol > 0) pre_mute_vol else 100;
+        }
+        cz.usa_sound_apply_volumes();
+    }
+
+    const on_color = c.nk_rgb(0xD8, 0xD8, 0xD8);
+    const off_color = c.nk_rgb(0x70, 0x70, 0x70);
+    const col = if (muted) off_color else on_color;
+
+    const cy = b.y + b.h / 2.0;
+    const bx = b.x + 2;
+    // Throat (small rectangle) + cone (trapezoid widening to the right).
+    const throat_h: f32 = 6;
+    c.nk_fill_rect(canvas, c.nk_rect(bx, cy - throat_h / 2.0, 4, throat_h), 0, col);
+    const p = bx + 4;
+    var pts = [_]f32{ p, cy - 3, p, cy + 3, p + 6, cy + 7, p + 6, cy - 7 };
+    c.nk_fill_polygon(canvas, &pts, 4, col);
+
+    if (muted) {
+        // Red slash to signal muted.
+        const sx = p + 9;
+        const red = c.nk_rgb(0xE0, 0x40, 0x30);
+        c.nk_stroke_line(canvas, sx, cy - 5, sx + 6, cy + 5, 1.5, red);
+        c.nk_stroke_line(canvas, sx, cy + 5, sx + 6, cy - 5, 1.5, red);
+    } else {
+        // Two arcs as sound waves emanating from the cone.
+        const ax = p + 6;
+        c.nk_stroke_arc(canvas, ax, cy, 4, -0.7, 0.7, 1.0, col);
+        c.nk_stroke_arc(canvas, ax, cy, 7, -0.7, 0.7, 1.0, col);
+    }
+}
+
+fn drawVolumeSlider(ctx: *c.nk_context) void {
+    const cfg = &cz.c.np2cfg;
+    const cur = cfg.vol_master;
+    var vf: f32 = @floatFromInt(cur);
+    vf = c.nk_slide_float(ctx, 0, vf, vol_max, 1);
+    const nv: u8 = @intFromFloat(vf);
+    if (nv != cur) {
+        cfg.vol_master = nv;
+        if (nv > 0) pre_mute_vol = nv;
+        cz.usa_sound_apply_volumes();
+    }
+}
+
+// Mouse icon reflecting capture state: filled orange while the pointer is
+// captured by the emulator, dim outline when free.
+fn drawMouseCaptureIcon(ctx: *c.nk_context) void {
+    const canvas = c.nk_window_get_canvas(ctx);
+    var b: c.struct_nk_rect = undefined;
+    _ = c.nk_widget(&b, ctx);
+
+    const captured = input.isMouseCaptured();
+
+    const mw: f32 = 12;
+    const mh: f32 = 16;
+    const mx = b.x + (b.w - mw) / 2.0;
+    const my = b.y + (b.h - mh) / 2.0;
+    const rounding: f32 = mw / 2.0;
+    const body = c.nk_rect(mx, my, mw, mh);
+
+    const active = c.nk_rgb(0xFF, 0x60, 0x10);
+    const dim = c.nk_rgb(0x80, 0x80, 0x80);
+    const outline = if (captured) active else dim;
+
+    if (captured) c.nk_fill_rect(canvas, body, rounding, c.nk_rgb(0xC0, 0x4C, 0x0C));
+    c.nk_stroke_rect(canvas, body, rounding, 1.0, outline);
+
+    // Button split (horizontal) and the seam up to the top (vertical), giving
+    // the silhouette a recognizable two-button mouse shape.
+    const detail = if (captured) c.nk_rgb(0xFF, 0xFF, 0xFF) else dim;
+    const cx = mx + mw / 2.0;
+    const split_y = my + mh * 0.42;
+    c.nk_stroke_line(canvas, mx, split_y, mx + mw, split_y, 1.0, detail);
+    c.nk_stroke_line(canvas, cx, my, cx, split_y, 1.0, detail);
 }
 
 fn drawDriveLamps(ctx: *c.nk_context, fdd: [4]bool, hdd: [4]bool) void {
