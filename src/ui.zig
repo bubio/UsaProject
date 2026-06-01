@@ -11,6 +11,7 @@ const platform = @import("platform.zig");
 const cli = @import("cli.zig");
 const archive = @import("archive.zig");
 const input = @import("input.zig");
+const history = @import("history.zig");
 
 pub const MENU_HEIGHT: u32 = 26;
 pub const STATUS_HEIGHT: u32 = 22;
@@ -168,13 +169,14 @@ pub fn draw(ctx: *c.nk_context, win_w: u32, win_h: u32, st: State) void {
     drawStatusBar(ctx, win_w, win_h, st);
     if (ui_dialog.show_about) drawAbout(ctx, win_w, win_h);
     if (ds_active()) drawDiskSelect(ctx, win_w, win_h);
+    if (rs_active()) drawRecentSelect(ctx, win_w, win_h);
     ui_dialog.draw(ctx, win_w, win_h);
 }
 
 pub fn flushPendingActions() void {
     if (dialog_open) return;
-    // While the disk-selection modal is up, don't start another file dialog.
-    if (ds_active()) {
+    // While a modal is up, don't start another file dialog.
+    if (ds_active() or rs_active()) {
         pending = .none;
         return;
     }
@@ -285,7 +287,7 @@ fn rowH(h: f32) f32 {
 // + Open + Eject, then either the clickable source name plus the mounted disk,
 // or the "(empty)" line.
 fn sectionHeight(kind: cli.DiskKind, drv: u32) f32 {
-    var h: f32 = rowH(18) + rowH(22) + rowH(22); // header + Open + Eject
+    var h: f32 = rowH(18) + rowH(22) + rowH(22) + rowH(22); // header + Open + Eject + Recent
     h += if (slotsFor(kind)[drv].set != null) rowH(22) + rowH(18) else rowH(18);
     return h;
 }
@@ -308,6 +310,9 @@ fn driveSection(ctx: *c.nk_context, kind: cli.DiskKind, drv: u32, title: [*:0]co
             .archive => {},
         }
     }
+    // Recent: opens the scrollable history list, mounting the pick into THIS
+    // drive. An in-app modal (not a native dialog), so trigger it directly.
+    if (c.nk_menu_item_label(ctx, "Recent...", c.NK_TEXT_LEFT) != 0) openRecent(kind, drv);
 
     const slot = &slotsFor(kind)[drv];
     if (slot.set) |set| {
@@ -720,10 +725,18 @@ fn openSingle(kind: cli.DiskKind, drv: u32) void {
     const filters = if (kind == .fdd) &fdd_filters else &hdd_filters;
     const path = (nfd.openDialog(disk_alloc, filters) catch null) orelse return;
     defer disk_alloc.free(path);
+    mountPath(kind, drv, path);
+}
 
+// Mount `path` (a dialog selection or a history entry) into drive `drv`. A plain
+// image mounts directly; an archive (.zip) is unpacked, and either its single
+// image of `kind` is mounted or the disk-selection modal is shown to pick one.
+// On a successful open the original `path` is recorded in the recent history.
+fn mountPath(kind: cli.DiskKind, drv: u32, path: [:0]const u8) void {
     if (!archive.isArchive(path)) {
         insertOne(kind, drv, path.ptr);
         resetIfHdd(kind);
+        history.record(kind, path);
         // Build a swap list from the folder's sibling images. Best-effort: a
         // scan failure just leaves the drive mounted with no swap list.
         if (archive.scanFolder(disk_alloc, path, kind)) |set| {
@@ -754,11 +767,13 @@ fn openSingle(kind: cli.DiskKind, drv: u32) void {
             const idx = only_index.?;
             insertOne(kind, drv, set.images[idx].path.ptr);
             resetIfHdd(kind);
+            history.record(kind, path);
             setSlot(kind, drv, set, idx);
         },
         else => {
             // Hand ownership of `set` to the modal (initial-open mode); it frees
             // it on cancel, or commits it to the drive slot on choose.
+            history.record(kind, path);
             ds_owned = set;
             ds_kind = kind;
             ds_target = drv;
@@ -776,6 +791,7 @@ fn openFddBoth() void {
 
     if (!archive.isArchive(path)) {
         insertOne(.fdd, 0, path.ptr);
+        history.record(.fdd, path);
         if (archive.scanFolder(disk_alloc, path, .fdd)) |set| {
             setSlot(.fdd, 0, set, indexOfPath(set, path));
         } else |_| clearSlot(.fdd, 0);
@@ -806,6 +822,7 @@ fn openFddBoth() void {
         set.deinit();
         return;
     }
+    history.record(.fdd, path);
 
     // Give each occupied drive its own ImageSet so the menu can list the zip's
     // disks with the right one lit. FDD1 adopts the original set; FDD2 gets a
@@ -918,6 +935,86 @@ fn drawDiskSelect(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
             ds_owned = null;
         }
         ds_on = false;
+    }
+}
+
+// --- Recent (history) modal ---
+//
+// Like the disk-selection modal, the drive menu can't scroll, so the recent
+// list lives in this scrollable modal. Selecting an entry re-runs the normal
+// open logic (mountPath) for the chosen drive: a plain image mounts, a multi-
+// disk archive re-opens the disk-selection modal.
+var rs_on: bool = false;
+var rs_kind: cli.DiskKind = .fdd;
+var rs_target: u32 = 0;
+var rs_reopen: bool = false;
+
+fn rs_active() bool {
+    return rs_on;
+}
+
+fn openRecent(kind: cli.DiskKind, drv: u32) void {
+    if (drv >= 2) return;
+    rs_kind = kind;
+    rs_target = drv;
+    rs_on = true;
+    rs_reopen = true;
+}
+
+fn drawRecentSelect(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
+    const dw: f32 = 360;
+    const dh: f32 = 300;
+    const dx = (@as(f32, @floatFromInt(win_w)) - dw) / 2.0;
+    const dy = (@as(f32, @floatFromInt(win_h)) - dh) / 2.0;
+    const bounds = c.nk_rect(dx, dy, dw, dh);
+    const flags = c.NK_WINDOW_BORDER | c.NK_WINDOW_TITLE | c.NK_WINDOW_MOVABLE | c.NK_WINDOW_CLOSABLE | c.NK_WINDOW_NO_SCROLLBAR;
+
+    c.nk_window_show(ctx, "Recent Disks", c.NK_SHOWN);
+    if (rs_reopen) {
+        rs_reopen = false;
+        c.nk_window_set_bounds(ctx, "Recent Disks", bounds);
+    }
+
+    var chosen: ?[:0]const u8 = null;
+    var cancel = false;
+    if (c.nk_begin(ctx, "Recent Disks", bounds, flags) != 0) {
+        const title: [*:0]const u8 = if (rs_kind == .fdd) "FDD history" else "HDD history";
+        c.nk_layout_row_dynamic(ctx, 22, 1);
+        c.nk_label(ctx, title, c.NK_TEXT_LEFT);
+
+        const n = history.count(rs_kind);
+        c.nk_layout_row_dynamic(ctx, 200, 1);
+        if (c.nk_group_begin(ctx, "rs_list", c.NK_WINDOW_BORDER) != 0) {
+            if (n == 0) {
+                c.nk_layout_row_dynamic(ctx, 26, 1);
+                c.nk_label(ctx, "(no recent)", c.NK_TEXT_LEFT);
+            } else {
+                c.nk_layout_row_dynamic(ctx, 26, 1);
+                for (0..n) |i| {
+                    const path = history.at(rs_kind, i);
+                    const base = std.fs.path.basename(path);
+                    var lbuf: [512]u8 = undefined;
+                    const label = std.fmt.bufPrintZ(&lbuf, "{s}", .{base}) catch continue;
+                    if (c.nk_button_label(ctx, label.ptr) != 0) chosen = path;
+                }
+            }
+            c.nk_group_end(ctx);
+        }
+
+        c.nk_layout_row_dynamic(ctx, 26, 1);
+        if (c.nk_button_label(ctx, "Cancel") != 0) cancel = true;
+    }
+    c.nk_end(ctx);
+    if (c.nk_window_is_hidden(ctx, "Recent Disks") != 0) cancel = true;
+
+    if (chosen) |path| {
+        const kind = rs_kind;
+        const drv = rs_target;
+        rs_on = false;
+        // mountPath may itself open the disk-selection modal (multi-disk zip).
+        mountPath(kind, drv, path);
+    } else if (cancel) {
+        rs_on = false;
     }
 }
 

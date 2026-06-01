@@ -1,6 +1,8 @@
 const std = @import("std");
 const cz = @import("c.zig");
 const input = @import("input.zig");
+const history = @import("history.zig");
+const cli = @import("cli.zig");
 
 const c = @cImport({
     @cInclude("stdio.h");
@@ -88,7 +90,9 @@ pub fn load() void {
     const fp = c.fopen(path, "r") orelse return;
     defer _ = c.fclose(fp);
 
-    var line_buf: [512]u8 = undefined;
+    // Sized for full disk-image paths (RecentFDD*/RecentHDD* values), not just
+    // short numeric settings.
+    var line_buf: [4096]u8 = undefined;
     var ents = getEntries();
 
     while (c.fgets(&line_buf, line_buf.len, fp) != null) {
@@ -123,6 +127,10 @@ pub fn load() void {
             cz.usa_set_keyboard(std.fmt.parseInt(u8, val, 0) catch 0);
         } else if (std.mem.eql(u8, key, "MouseSensi")) {
             input.setSensitivity(std.fmt.parseInt(u16, val, 0) catch 100);
+        } else if (std.mem.startsWith(u8, key, "RecentFDD")) {
+            if (val.len > 0) history.append(.fdd, val);
+        } else if (std.mem.startsWith(u8, key, "RecentHDD")) {
+            if (val.len > 0) history.append(.hdd, val);
         }
     }
 
@@ -195,10 +203,23 @@ pub fn save() void {
         _ = c.fputs(line.ptr, fp);
     } else |_| {}
 
+    // Recent disk history, most-recent-first. Paths can be long, so use a buffer
+    // sized to hold a 4096-byte path plus the "RecentXXXn = \n" framing.
+    var pbuf: [4160:0]u8 = undefined;
+    writeRecent(fp, &pbuf, .fdd, "RecentFDD");
+    writeRecent(fp, &pbuf, .hdd, "RecentHDD");
+
     std.debug.print(">>> config saved: {s}\n", .{std.mem.sliceTo(path, 0)});
 }
 
 fn writeU8Field(fp: *c.FILE, buf: *[64:0]u8, key: []const u8, val: u8) void {
     const line = std.fmt.bufPrintZ(buf, "{s} = {d}\n", .{ key, val }) catch return;
     _ = c.fputs(line.ptr, fp);
+}
+
+fn writeRecent(fp: *c.FILE, buf: *[4160:0]u8, kind: cli.DiskKind, prefix: []const u8) void {
+    for (0..history.count(kind)) |i| {
+        const line = std.fmt.bufPrintZ(buf, "{s}{d} = {s}\n", .{ prefix, i, history.at(kind, i) }) catch continue;
+        _ = c.fputs(line.ptr, fp);
+    }
 }
