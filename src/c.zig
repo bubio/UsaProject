@@ -71,3 +71,26 @@ pub extern fn usa_pal_makelcdpal() void;
 pub extern fn usa_pal_makeskiptable() void;
 pub extern fn usa_gdc_restorekacmode() void;
 pub extern fn usa_gdc_alldraw2() void;
+
+// State save / load (NP2kai statsave.c). OEMCHAR is UTF-8 char under OSLANG_UTF8,
+// so paths pass through as plain [*:0]u8 with no conversion. This build defines
+// __LIBRETRO__, so the *_d entry points take the path as an argument rather than
+// the g_u8ControlState/m_strStateFilename queue the SDL/X11 frontends use. The UI
+// captures the chosen path and calls *_d directly at a frame boundary (see
+// ui.flushPendingState, driven from main.zig's frame loop).
+pub extern fn statsave_check(filename: [*:0]const u8, buf: [*]u8, size: c_int) c_int;
+pub extern fn statsave_save_d(filename: [*:0]const u8) c_int;
+pub extern fn statsave_load_d(filename: [*:0]const u8) c_int;
+
+// Disk paths currently mounted in the core, used to resync the UI's drive slots
+// after a state load. Return a pointer into a static buffer ("" when the drive
+// is empty, NULL only for an out-of-range drive index).
+pub extern fn fdd_diskname(drv: u8) [*c]u8;
+pub extern fn sxsi_getfilename(drv: u8) [*c]u8;
+
+pub const STATFLAG_SUCCESS: c_int = 0;
+pub const STATFLAG_DISKCHG: c_int = 0x0001;
+pub const STATFLAG_VERCHG: c_int = 0x0002;
+pub const STATFLAG_WARNING: c_int = 0x0080;
+pub const STATFLAG_VERSION: c_int = 0x0100;
+pub const STATFLAG_FAILURE: c_int = -1;

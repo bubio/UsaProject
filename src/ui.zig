@@ -95,6 +95,9 @@ const hdd_filters = [_]nfd.Filter{
     .{ .name = "HDD Images", .spec = extsToSpec(&cli.hdd_exts) },
     .{ .name = "Archives (zip)", .spec = extsToSpec(&cli.archive_exts) },
 };
+const state_filters = [_]nfd.Filter{
+    .{ .name = "State Files", .spec = "sav" },
+};
 
 const PendingAction = enum {
     none,
@@ -103,6 +106,8 @@ const PendingAction = enum {
     open_fdd_both,
     open_hdd0,
     open_hdd1,
+    save_state,
+    load_state,
 };
 var pending: PendingAction = .none;
 var dialog_open: bool = false;
@@ -145,6 +150,7 @@ pub fn shutdown() void {
         c.snk_destroy_image(about_icon);
         about_icon_valid = false;
     }
+    if (pending_state_path) |p| disk_alloc.free(p);
     freeSlots();
 }
 
@@ -170,13 +176,14 @@ pub fn draw(ctx: *c.nk_context, win_w: u32, win_h: u32, st: State) void {
     if (ui_dialog.show_about) drawAbout(ctx, win_w, win_h);
     if (ds_active()) drawDiskSelect(ctx, win_w, win_h);
     if (rs_active()) drawRecentSelect(ctx, win_w, win_h);
+    if (ss_active()) drawStateMsg(ctx, win_w, win_h);
     ui_dialog.draw(ctx, win_w, win_h);
 }
 
 pub fn flushPendingActions() void {
     if (dialog_open) return;
     // While a modal is up, don't start another file dialog.
-    if (ds_active() or rs_active()) {
+    if (ds_active() or rs_active() or ss_active()) {
         pending = .none;
         return;
     }
@@ -193,6 +200,8 @@ pub fn flushPendingActions() void {
         .open_fdd_both => openFddBoth(),
         .open_hdd0 => openSingle(.hdd, 0),
         .open_hdd1 => openSingle(.hdd, 1),
+        .save_state => saveState(),
+        .load_state => loadState(),
         .none => {},
     }
 }
@@ -237,7 +246,7 @@ fn drawMenuBar(ctx: *c.nk_context, win_w: u32) void {
 
 fn menuEmulate(ctx: *c.nk_context) void {
     c.nk_layout_row_push(ctx, 65);
-    if (c.nk_menu_begin_label(ctx, "Emulate", c.NK_TEXT_LEFT, c.nk_vec2(180, 120)) != 0) {
+    if (c.nk_menu_begin_label(ctx, "Emulate", c.NK_TEXT_LEFT, c.nk_vec2(180, 200)) != 0) {
         c.nk_layout_row_dynamic(ctx, 22, 1);
         if (c.nk_menu_item_label(ctx, "Reset", c.NK_TEXT_LEFT) != 0) {
             cz.pccore_reset();
@@ -246,8 +255,13 @@ fn menuEmulate(ctx: *c.nk_context) void {
             ui_dialog.openConfigure();
             clearMouseClick(ctx);
         }
-        c.nk_layout_row_dynamic(ctx, 4, 1);
-        c.nk_spacing(ctx, 1);
+        menuSep(ctx);
+        c.nk_layout_row_dynamic(ctx, 22, 1);
+        // Deferred like the disk dialogs: just set `pending`; the native dialog
+        // runs in flushPendingActions so it doesn't fight the menu's click.
+        if (c.nk_menu_item_label(ctx, "Save State...", c.NK_TEXT_LEFT) != 0) pending = .save_state;
+        if (c.nk_menu_item_label(ctx, "Load State...", c.NK_TEXT_LEFT) != 0) pending = .load_state;
+        menuSep(ctx);
         c.nk_layout_row_dynamic(ctx, 22, 1);
         if (c.nk_menu_item_label(ctx, "Exit", c.NK_TEXT_LEFT) != 0) sapp.requestQuit();
         c.nk_menu_end(ctx);
@@ -717,6 +731,98 @@ fn resetIfHdd(kind: cli.DiskKind) void {
     if (kind == .hdd) cz.pccore_reset();
 }
 
+// --- State save / load ---
+//
+// __LIBRETRO__ build: statsave_save_d/load_d take the path directly and do the
+// real file I/O, so we run them at a frame boundary (flushPendingState, called
+// from main.zig) rather than mid-frame from a menu click. The captured path is
+// owned here in `pending_state_path` until the op runs.
+const StateOp = enum { none, save, load };
+var pending_state_op: StateOp = .none;
+var pending_state_path: ?[:0]u8 = null;
+
+// Take ownership of `path` and schedule `op` for the next frame boundary,
+// replacing (and freeing) any previously queued request.
+fn setPendingState(op: StateOp, path: [:0]u8) void {
+    if (pending_state_path) |old| disk_alloc.free(old);
+    pending_state_path = path;
+    pending_state_op = op;
+}
+
+// Run a queued state save/load. Called from main.zig's frame loop on a frame
+// boundary so the CPU is between steps when the (heavy) I/O happens.
+pub fn flushPendingState() void {
+    const op = pending_state_op;
+    if (op == .none) return;
+    pending_state_op = .none;
+    const path = pending_state_path orelse return;
+    pending_state_path = null;
+    defer disk_alloc.free(path);
+    switch (op) {
+        .save => onStateSaveResult(cz.statsave_save_d(path.ptr)),
+        .load => {
+            const ret = cz.statsave_load_d(path.ptr);
+            onStateLoadResult(ret);
+            // The load swapped the core's mounted disks without going through the
+            // UI's mount path, so rebuild the drive menus from the core's state.
+            if (ret != cz.STATFLAG_FAILURE) syncSlotsFromCore();
+        },
+        .none => {},
+    }
+}
+
+// Rebuild the drive-menu slots from the disks the core currently has mounted.
+// Used after a state load, which changes the core's FDD/HDD contents directly.
+fn syncSlotsFromCore() void {
+    for (0..2) |i| {
+        const drv: u32 = @intCast(i);
+        syncSlot(.fdd, drv, cz.fdd_diskname(@intCast(i)));
+        syncSlot(.hdd, drv, cz.sxsi_getfilename(@intCast(i)));
+    }
+}
+
+// Point drive `drv`'s slot at `cname` (the core's mounted path): clear it, then
+// rebuild the swap list from the file's folder. A NULL/empty name leaves it empty.
+fn syncSlot(kind: cli.DiskKind, drv: u32, cname: [*c]u8) void {
+    clearSlot(kind, drv);
+    if (cname == null) return;
+    const name = std.mem.span(cname);
+    if (name.len == 0) return;
+    registerMount(kind, drv, name);
+}
+
+// Save the current machine state to a path chosen via the native save dialog.
+// The write itself runs at the next frame boundary (flushPendingState); a
+// failure there surfaces via onStateSaveResult.
+fn saveState() void {
+    const path = (nfd.saveDialog(disk_alloc, &state_filters, "state.sav") catch null) orelse return;
+    setPendingState(.save, path); // ownership moves to the pending slot
+}
+
+// Load a saved machine state. Picks a .sav via the open dialog, validates it
+// with statsave_check, then either queues the load or raises an error/confirm
+// modal depending on the compatibility flags.
+fn loadState() void {
+    const path = (nfd.openDialog(disk_alloc, &state_filters) catch null) orelse return;
+
+    var buf: [1024]u8 = undefined;
+    const ret = cz.statsave_check(path.ptr, &buf, @intCast(buf.len));
+
+    // Hard error: failure, or a version/warning mismatch (anything but DISKCHG).
+    if ((ret & ~cz.STATFLAG_DISKCHG) != 0) {
+        disk_alloc.free(path);
+        ss_showError("This file is not a valid save state, or is incompatible.");
+        return;
+    }
+    // Disk mismatch only: ask before continuing (ss_showConfirm copies the path).
+    if ((ret & cz.STATFLAG_DISKCHG) != 0) {
+        ss_showConfirm(path);
+        disk_alloc.free(path);
+        return;
+    }
+    setPendingState(.load, path); // ownership moves to the pending slot
+}
+
 // Open a file dialog for `kind` and mount the selection into drive `drv`.
 // A plain image mounts directly. An archive (.zip) is unpacked: if it holds a
 // single image of `kind` that one is mounted; if it holds several, the disk-
@@ -1015,6 +1121,108 @@ fn drawRecentSelect(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
         mountPath(kind, drv, path);
     } else if (cancel) {
         rs_on = false;
+    }
+}
+
+// --- State save/load message modal ---
+//
+// A small modal shared by state save/load for two jobs: showing an error (a
+// bad/incompatible file, or a failed save/load) with an OK button, and asking
+// the user to confirm a load whose disk configuration differs from the save
+// (STATFLAG_DISKCHG) with Load/Cancel buttons. Same state-variable + draw-hook +
+// dialog-suppression structure as the disk/recent modals above.
+const SsMode = enum { error_msg, confirm_load };
+var ss_on: bool = false;
+var ss_mode: SsMode = .error_msg;
+var ss_reopen: bool = false;
+var ss_text_buf: [256]u8 = undefined;
+var ss_text_len: usize = 0;
+// The load target held across the confirm modal, so we don't keep the dialog's
+// heap-allocated path alive past loadState().
+var ss_pending_path: [std.fs.max_path_bytes:0]u8 = undefined;
+var ss_pending_path_len: usize = 0;
+
+fn ss_active() bool {
+    return ss_on;
+}
+
+fn ss_setText(msg: []const u8) void {
+    ss_text_len = @min(msg.len, ss_text_buf.len);
+    @memcpy(ss_text_buf[0..ss_text_len], msg[0..ss_text_len]);
+}
+
+fn ss_showError(msg: []const u8) void {
+    ss_mode = .error_msg;
+    ss_setText(msg);
+    ss_on = true;
+    ss_reopen = true;
+}
+
+fn ss_showConfirm(path: [:0]const u8) void {
+    ss_mode = .confirm_load;
+    ss_setText("The disk configuration differs from this save state. Load anyway?");
+    ss_pending_path_len = @min(path.len, ss_pending_path.len);
+    @memcpy(ss_pending_path[0..ss_pending_path_len], path[0..ss_pending_path_len]);
+    ss_pending_path[ss_pending_path_len] = 0;
+    ss_on = true;
+    ss_reopen = true;
+}
+
+// Surface the result of the frame-boundary statsave_save_d/load_d. Only failures
+// need user attention.
+fn onStateSaveResult(ret: c_int) void {
+    if (ret != cz.STATFLAG_SUCCESS) ss_showError("Failed to save the state.");
+}
+
+fn onStateLoadResult(ret: c_int) void {
+    if (ret == cz.STATFLAG_FAILURE) ss_showError("Failed to load the state.");
+}
+
+fn drawStateMsg(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
+    const dw: f32 = 360;
+    const dh: f32 = 160;
+    const dx = (@as(f32, @floatFromInt(win_w)) - dw) / 2.0;
+    const dy = (@as(f32, @floatFromInt(win_h)) - dh) / 2.0;
+    const bounds = c.nk_rect(dx, dy, dw, dh);
+    const flags = c.NK_WINDOW_BORDER | c.NK_WINDOW_TITLE | c.NK_WINDOW_MOVABLE | c.NK_WINDOW_CLOSABLE | c.NK_WINDOW_NO_SCROLLBAR;
+
+    const title: [*:0]const u8 = if (ss_mode == .error_msg) "State Error" else "Load State";
+    c.nk_window_show(ctx, title, c.NK_SHOWN);
+    if (ss_reopen) {
+        ss_reopen = false;
+        c.nk_window_set_bounds(ctx, title, bounds);
+    }
+
+    var do_load = false;
+    var dismiss = false;
+    if (c.nk_begin(ctx, title, bounds, flags) != 0) {
+        var tbuf: [256]u8 = undefined;
+        const msg = std.fmt.bufPrintZ(&tbuf, "{s}", .{ss_text_buf[0..ss_text_len]}) catch "?";
+        c.nk_layout_row_dynamic(ctx, 70, 1);
+        c.nk_label_wrap(ctx, msg.ptr);
+
+        if (ss_mode == .confirm_load) {
+            c.nk_layout_row_dynamic(ctx, 26, 2);
+            if (c.nk_button_label(ctx, "Cancel") != 0) dismiss = true;
+            if (c.nk_button_label(ctx, "Load") != 0) do_load = true;
+        } else {
+            c.nk_layout_row_dynamic(ctx, 26, 1);
+            if (c.nk_button_label(ctx, "OK") != 0) dismiss = true;
+        }
+    }
+    c.nk_end(ctx);
+    if (c.nk_window_is_hidden(ctx, title) != 0) dismiss = true;
+
+    if (do_load) {
+        ss_on = false;
+        // Copy the held path into an owned slice for the pending slot.
+        const p = disk_alloc.dupeZ(u8, ss_pending_path[0..ss_pending_path_len]) catch {
+            ss_showError("Out of memory.");
+            return;
+        };
+        setPendingState(.load, p);
+    } else if (dismiss) {
+        ss_on = false;
     }
 }
 

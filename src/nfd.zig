@@ -58,3 +58,38 @@ pub fn openDialog(allocator: std.mem.Allocator, filters: []const Filter) Error!?
         else => return Error.DialogFailed,
     }
 }
+
+/// Show a "Save File" dialog. Returns the chosen path (caller owns), or `null`
+/// if the user cancelled. `default_name` (e.g. "state.sav") pre-fills the
+/// filename field. The returned slice is allocated with `allocator` and must be
+/// freed by the caller.
+pub fn saveDialog(
+    allocator: std.mem.Allocator,
+    filters: []const Filter,
+    default_name: ?[:0]const u8,
+) Error!?[:0]u8 {
+    try ensureInit();
+
+    var stack_items: [8]c.nfdu8filteritem_t = undefined;
+    const n = @min(filters.len, stack_items.len);
+    for (filters[0..n], 0..) |f, i| {
+        stack_items[i] = .{ .name = f.name.ptr, .spec = f.spec.ptr };
+    }
+
+    var out_path: [*c]c.nfdu8char_t = null;
+    const filter_ptr: [*c]const c.nfdu8filteritem_t = if (n > 0) &stack_items[0] else null;
+    const name_ptr: [*c]const c.nfdu8char_t = if (default_name) |dn| dn.ptr else null;
+    const rc = c.NFD_SaveDialogU8(&out_path, filter_ptr, @intCast(n), null, name_ptr);
+
+    switch (rc) {
+        NFD_OKAY => {
+            defer c.NFD_FreePathU8(out_path);
+            const slice = std.mem.span(out_path);
+            const owned = allocator.allocSentinel(u8, slice.len, 0) catch return Error.OutOfMemory;
+            @memcpy(owned, slice);
+            return owned;
+        },
+        NFD_CANCEL => return null,
+        else => return Error.DialogFailed,
+    }
+}

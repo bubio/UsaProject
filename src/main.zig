@@ -367,6 +367,10 @@ export fn frame() void {
         break :blk decision.frames;
     };
 
+    // Run a queued state save/load at a frame boundary, before stepping the CPU,
+    // so the heavy file I/O doesn't happen mid-frame from a menu click.
+    ui.flushPendingState();
+
     if (frames > 0) {
         const draw_skip = cz.usa_get_draw_skip();
         var i: u32 = 0;
