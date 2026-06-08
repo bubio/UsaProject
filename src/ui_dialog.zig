@@ -77,12 +77,14 @@ const ConfigState = struct {
     delayms: u16,
     sound_sw: u8,
     extmem: u16,
+    cpu_index: c_uint,
 
     fn eql(a: ConfigState, b: ConfigState) bool {
         return a.baseclock == b.baseclock and a.multiple == b.multiple and
             std.mem.eql(u8, &a.model, &b.model) and
             a.samplingrate == b.samplingrate and a.delayms == b.delayms and
-            a.sound_sw == b.sound_sw and a.extmem == b.extmem;
+            a.sound_sw == b.sound_sw and a.extmem == b.extmem and
+            a.cpu_index == b.cpu_index;
     }
 };
 
@@ -97,6 +99,7 @@ fn captureConfigState() ConfigState {
         .delayms = cz.c.np2cfg.delayms,
         .sound_sw = cz.c.np2cfg.SOUND_SW,
         .extmem = cz.c.np2cfg.EXTMEM,
+        .cpu_index = cz.usa_get_cpu_index(),
     };
 }
 
@@ -108,6 +111,10 @@ fn modelToIdx(model: [8]u8) usize {
 
 const base_clocks = [_]u32{ 1996800, 2457600 };
 const base_clock_labels = [_][*:0]const u8{ "1.9968 MHz", "2.4576 MHz" };
+// CPU type indices as understood by Set/GetCpuTypeIndex (np2_glue.c). Limited to
+// the PC-9801-era Intel chips; 2 = i486SX is the default.
+const cpu_indices = [_]c_uint{ 1, 2, 3, 4 };
+const cpu_labels = [_][*:0]const u8{ "80386", "i486SX", "i486DX", "Pentium" };
 const multipliers = [_]u32{ 1, 2, 4, 5, 6, 8, 10, 12, 16, 20 };
 const model_labels = [_][*:0]const u8{ "PC-9801VM", "PC-9801VX", "PC-286" };
 const model_names = [_][*:0]const u8{ "VM", "VX", "PC286" };
@@ -183,12 +190,19 @@ fn drawConfigure(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
 // --- Tab 1: System (CPU / Architecture / Memory / Keyboard) ---
 
 fn drawSystemTab(ctx: *c.nk_context, cfg: anytype) void {
-    if (beginBox(ctx, "sys_cpu", "CPU", 90)) {
+    if (beginBox(ctx, "sys_cpu", "CPU", 118)) {
         c.nk_layout_row_dynamic(ctx, 22, 2);
         for (base_clocks, 0..) |clk, i| {
             const was: c_int = if (cfg.baseclock == clk) 1 else 0;
             if (c.nk_option_label(ctx, base_clock_labels[i], was) != 0 and was == 0)
                 cfg.baseclock = clk;
+        }
+        c.nk_layout_row_dynamic(ctx, 22, 4);
+        const cur_cpu = cz.usa_get_cpu_index();
+        for (cpu_labels, 0..) |lbl, i| {
+            const was: c_int = if (cur_cpu == cpu_indices[i]) 1 else 0;
+            if (c.nk_option_label(ctx, lbl, was) != 0 and was == 0)
+                cz.usa_set_cpu_index(cpu_indices[i]);
         }
         c.nk_layout_row_begin(ctx, c.NK_STATIC, 22, 2);
         c.nk_layout_row_push(ctx, 70);

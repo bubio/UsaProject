@@ -122,6 +122,7 @@ export fn init() void {
     cz.c.pccore_setdefault();
     cz.usa_apply_config_overrides();
     cz.c.np2cfg.EXTMEM = 1; // default extended memory: 1.6MB (overridden by saved config below)
+    cz.usa_set_cpu_index(2); // default CPU: i486SX (overridden by saved config below)
     config.load();
     if (parsed_opts) |opts| {
         if (opts.model) |m| cz.np2_set_model(m.ptr);

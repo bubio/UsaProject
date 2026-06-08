@@ -61,6 +61,8 @@ pub extern fn usa_get_draw_skip() u8;
 pub extern fn usa_set_draw_skip(v: u8) void;
 pub extern fn usa_get_keyboard() u8;
 pub extern fn usa_set_keyboard(v: u8) void;
+pub extern fn usa_get_cpu_index() c_uint;
+pub extern fn usa_set_cpu_index(v: c_uint) void;
 pub extern fn usa_beep_setvol(vol: c_uint) void;
 pub extern fn usa_sound_apply_volumes() void;
 pub extern fn usa_audio_capture_open(path: [*:0]const u8, autotest: c_int) c_int;

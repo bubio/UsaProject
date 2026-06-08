@@ -125,6 +125,8 @@ pub fn load() void {
             cz.usa_set_draw_skip(std.fmt.parseInt(u8, val, 0) catch 0);
         } else if (std.mem.eql(u8, key, "keyboard")) {
             cz.usa_set_keyboard(std.fmt.parseInt(u8, val, 0) catch 0);
+        } else if (std.mem.eql(u8, key, "cpu_type")) {
+            cz.usa_set_cpu_index(std.fmt.parseInt(c_uint, val, 0) catch 2);
         } else if (std.mem.eql(u8, key, "MouseSensi")) {
             input.setSensitivity(std.fmt.parseInt(u16, val, 0) catch 100);
         } else if (std.mem.startsWith(u8, key, "RecentFDD")) {
@@ -199,6 +201,7 @@ pub fn save() void {
     writeU8Field(fp, &obuf, "NOWAIT", cz.usa_get_nowait());
     writeU8Field(fp, &obuf, "DrawSkip", cz.usa_get_draw_skip());
     writeU8Field(fp, &obuf, "keyboard", cz.usa_get_keyboard());
+    writeU8Field(fp, &obuf, "cpu_type", @intCast(cz.usa_get_cpu_index()));
     if (std.fmt.bufPrintZ(&obuf, "MouseSensi = {d}\n", .{input.getSensitivity()})) |line| {
         _ = c.fputs(line.ptr, fp);
     } else |_| {}

@@ -607,6 +607,11 @@ void    usa_set_draw_skip(uint8_t v)  { np2oscfg.DRAW_SKIP = v; }
 uint8_t usa_get_keyboard(void)       { return np2oscfg.KEYBOARD; }
 void    usa_set_keyboard(uint8_t v)  { np2oscfg.KEYBOARD = v; }
 
+// CPU type: the core already maps a single index to all the cpu_family/model/
+// stepping/feature fields via Get/SetCpuTypeIndex (pccore.c). 2 = i486SX.
+unsigned usa_get_cpu_index(void)      { return (unsigned)GetCpuTypeIndex(); }
+void     usa_set_cpu_index(unsigned v) { SetCpuTypeIndex((UINT)v); }
+
 void usa_beep_setvol(unsigned vol) {
     np2cfg.BEEP_VOL = (UINT8)vol;
     beep_setvol(vol);
