@@ -18,6 +18,11 @@ const std = @import("std");
 const cli = @import("cli.zig");
 const platform = @import("platform.zig");
 
+/// NP2kai codecnv: CP932 (Shift-JIS) → UTF-8。バイナリモード (cchIn != -1) では
+/// 書き込みバイト数を返し、NUL 終端しない。`core/np2kai/codecnv/sjisucs2.c` 内で
+/// 自己完結 (テーブル駆動、コアのグローバルに非依存)。
+extern fn codecnv_sjistoutf8(out: ?[*]u8, cchOut: c_uint, in: [*]const u8, cchIn: c_uint) c_uint;
+
 pub const Error = error{
     /// The archive unpacked successfully but contained no FDD/HDD image.
     NoDiskImageInArchive,
@@ -30,8 +35,9 @@ pub const Error = error{
 /// cache/arena and are owned by the containing `ImageSet`.
 pub const Image = struct {
     path: [:0]const u8,
-    /// Human-facing label for disk-selection UI: the original archive filename
-    /// when it survives ASCII sanitization, else "Disk N". See collectImages.
+    /// Human-facing label for disk-selection UI: the original (UTF-8, Japanese-
+    /// capable) filename, or "Disk N" when no meaningful name remains. See
+    /// collectImages.
     name: [:0]const u8,
     kind: cli.DiskKind, // always .fdd or .hdd
 };
@@ -42,8 +48,8 @@ pub const Image = struct {
 pub const ImageSet = struct {
     images: []Image,
     /// Human-facing label for the source the images came from: the archive
-    /// filename or the containing folder name (ASCII-sanitized). Shown as the
-    /// section header in the drive menu's disk-swap list.
+    /// filename or the containing folder name (UTF-8). Shown as the section
+    /// header in the drive menu's disk-swap list.
     source: [:0]const u8,
     arena: std.heap.ArenaAllocator,
 
@@ -102,8 +108,7 @@ pub fn extractImages(allocator: std.mem.Allocator, archive_path: [:0]const u8) E
 /// Scan the folder containing `file_path` for sibling images of `kind` (so the
 /// drive menu can offer them as swap targets), returning them sorted by path.
 /// `source` is the folder name. Real on-disk paths are used directly; the core
-/// opens UTF-8 paths, so non-ASCII folders work even though their display names
-/// fall back to "Disk N".
+/// opens UTF-8 paths, and display labels keep their UTF-8 (Japanese) names.
 pub fn scanFolder(allocator: std.mem.Allocator, file_path: [:0]const u8, kind: cli.DiskKind) Error!ImageSet {
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
@@ -203,13 +208,12 @@ fn ensureExtracted(io: std.Io, allocator: std.mem.Allocator, archive_path: [:0]c
 ///
 /// We do NOT use std.zip.extract: PC-98 game archives routinely store entry
 /// names in CP932 (Shift-JIS) and inside a top-level directory, and macOS/APFS
-/// rejects non-UTF-8 filenames (error.BadPathName). Instead we extract only the
-/// disk images, each under a safe name "<NNNN>_<sanitized-basename>" assigned in
-/// original filename order, so collectImages' path sort reproduces that order on
-/// reuse and can recover a display label from the basename. Non-image entries
+/// rejects non-UTF-8 filenames (error.BadPathName). Instead we decode each name
+/// to UTF-8 (see decodeName) and extract only the disk images, each under a safe
+/// name "<NNNN>_<sanitized-basename>" assigned in original filename order, so
+/// collectImages' path sort reproduces that order on reuse and can recover a
+/// (now Japanese-capable) display label from the basename. Non-image entries
 /// (readme, directories) are skipped — the emulator only needs the raw images.
-/// Extensions are ASCII even within CP932 names ('.' and '/' never occur as
-/// Shift-JIS trailing bytes), so classification stays valid.
 fn unpackImages(io: std.Io, allocator: std.mem.Allocator, archive_path: [:0]const u8, dest: std.Io.Dir) !void {
     var file = try std.Io.Dir.cwd().openFile(io, archive_path, .{});
     defer file.close(io);
@@ -226,15 +230,19 @@ fn unpackImages(io: std.Io, allocator: std.mem.Allocator, archive_path: [:0]cons
     var cands: std.ArrayList(Cand) = .empty;
 
     var name_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var dec_buf: [std.fs.max_path_bytes]u8 = undefined;
     while (try iter.next()) |entry| {
         if (entry.filename_len == 0 or entry.filename_len > name_buf.len) continue;
         const name = name_buf[0..entry.filename_len];
         try fr.seekTo(entry.header_zip_offset + @sizeOf(std.zip.CentralDirectoryFileHeader));
         try fr.interface.readSliceAll(name);
         if (name[name.len - 1] == '/' or name[name.len - 1] == '\\') continue; // directory entry
-        const kind = cli.classifyExt(name) orelse continue;
+        // Decode to UTF-8 (CP932 → UTF-8, or pass-through if already UTF-8) so the
+        // cache name — and thus the recovered display label — keeps Japanese names.
+        const decoded = decodeName(&dec_buf, name);
+        const kind = cli.classifyExt(decoded) orelse continue;
         if (kind == .archive) continue;
-        try cands.append(a, .{ .name = try a.dupe(u8, name), .entry = entry });
+        try cands.append(a, .{ .name = try a.dupe(u8, decoded), .entry = entry });
     }
 
     std.mem.sort(Cand, cands.items, {}, struct {
@@ -244,14 +252,14 @@ fn unpackImages(io: std.Io, allocator: std.mem.Allocator, archive_path: [:0]cons
     }.lt);
 
     for (cands.items, 0..) |cand, i| {
-        const base = basename(cand.name);
+        const base = basename(cand.name); // decoded UTF-8 basename
         const dot = std.mem.lastIndexOfScalar(u8, cand.name, '.').?;
-        const ext = cand.name[dot..]; // ASCII even within CP932 names
+        const ext = cand.name[dot..]; // extension is ASCII
         // "<NNNN>_<sanitized>". The sanitized basename keeps a recoverable
-        // display label; if it drops everything (all-CP932 name) we still have
-        // the ASCII extension so classifyExt and collectImages keep working.
+        // display label; if it drops everything we still have the ASCII
+        // extension so classifyExt and collectImages keep working.
         var san_buf: [std.fs.max_path_bytes]u8 = undefined;
-        const san = sanitizeAscii(&san_buf, base);
+        const san = sanitizeFsName(&san_buf, base);
         var out_name_buf: [std.fs.max_path_bytes]u8 = undefined;
         const out_name = if (san.len == 0)
             try std.fmt.bufPrint(&out_name_buf, "{d:0>4}_{s}", .{ i, ext })
@@ -271,18 +279,34 @@ fn basename(name: []const u8) []const u8 {
     return name[start..];
 }
 
-/// Copy the printable-ASCII filename-safe bytes of `src` into `dst`, dropping
-/// everything else (CP932 bytes, control chars, path separators). Returns the
-/// written slice. Used both to build the on-disk cache name and to recover a
-/// display label from it later.
-fn sanitizeAscii(dst: []u8, src: []const u8) []u8 {
+/// Decode an archive entry name to UTF-8. Modern zips store UTF-8 names; older
+/// PC-98 archives store CP932 (Shift-JIS). std.zip doesn't expose the UTF-8 flag
+/// (general-purpose bit 11), so we sniff instead: a name that is already valid
+/// UTF-8 is passed through, otherwise it is decoded from CP932 via NP2kai's
+/// codecnv. The decoded bytes land in `dst`; the returned slice points into
+/// `dst` (CP932 path) or `raw` (already-UTF-8 path).
+fn decodeName(dst: []u8, raw: []const u8) []const u8 {
+    if (std.unicode.utf8ValidateSlice(raw)) return raw;
+    // Binary mode (cchIn != -1) returns bytes written and does not NUL-terminate.
+    const n = codecnv_sjistoutf8(dst.ptr, @intCast(dst.len), raw.ptr, @intCast(raw.len));
+    const out = dst[0..@min(n, dst.len)];
+    // Defensive: if the conversion produced something unexpected, keep raw.
+    return if (std.unicode.utf8ValidateSlice(out)) out else raw;
+}
+
+/// Copy the filename-safe bytes of `src` (a UTF-8 string) into `dst`, dropping
+/// only control chars, path separators, and characters illegal in filenames on
+/// Windows. Bytes ≥ 0x80 (multi-byte UTF-8, e.g. Japanese) are preserved, so the
+/// on-disk cache name keeps a renderable label that we recover later. The
+/// decoded UTF-8 is valid on APFS/NTFS/ext.
+fn sanitizeFsName(dst: []u8, src: []const u8) []const u8 {
     var n: usize = 0;
     for (src) |ch| {
-        const ok = switch (ch) {
-            'A'...'Z', 'a'...'z', '0'...'9', '.', '_', '-', ' ' => true,
+        const drop = ch < 0x20 or switch (ch) {
+            '/', '\\', ':', '*', '?', '"', '<', '>', '|' => true,
             else => false,
         };
-        if (ok and n < dst.len) {
+        if (!drop and n < dst.len) {
             dst[n] = ch;
             n += 1;
         }
@@ -360,27 +384,26 @@ fn dirname(path: []const u8) []const u8 {
     return if (i == 0) "/" else path[0..i];
 }
 
-/// Derive a renderable disk label from a raw basename: the ASCII-sanitized name,
-/// or "Disk N" (1-based) when nothing renderable survives (all-CP932 names).
+/// Derive a renderable disk label from a basename (a real on-disk path's
+/// basename, or the UTF-8 cache name recovered via stripIndexPrefix): the name
+/// itself, or "Disk N" (1-based) when nothing meaningful remains (e.g. an
+/// extension-only label). The name is already UTF-8 and filesystem-safe, so it
+/// is used verbatim — Japanese names render as-is with the bundled font.
 fn displayName(a: std.mem.Allocator, raw: []const u8, index: usize) ![:0]const u8 {
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
-    const san = sanitizeAscii(&buf, raw);
-    if (san.len == 0 or hasBlankStem(san))
+    if (raw.len == 0 or hasBlankStem(raw))
         return std.fmt.allocPrintSentinel(a, "Disk {d}", .{index + 1}, 0);
-    return a.dupeZ(u8, san);
+    return a.dupeZ(u8, raw);
 }
 
-/// Derive a renderable source label (archive/folder name) from a raw basename,
-/// falling back to `fallback` when sanitization leaves nothing.
+/// Derive a renderable source label (archive/folder name) from a real path's
+/// basename — used verbatim (UTF-8) — falling back to `fallback` when empty.
 fn displaySource(a: std.mem.Allocator, raw: []const u8, fallback: []const u8) ![:0]const u8 {
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
-    const san = sanitizeAscii(&buf, raw);
-    return a.dupeZ(u8, if (san.len == 0) fallback else san);
+    return a.dupeZ(u8, if (raw.len == 0) fallback else raw);
 }
 
 /// Drop the "<NNNN>_" extraction prefix that unpackImages prepends, recovering
-/// the sanitized original basename. Returns the input unchanged if it lacks the
-/// prefix (e.g. plain on-disk images that were never archive-extracted).
+/// the (UTF-8, filesystem-safe) original basename. Returns the input unchanged
+/// if it lacks the prefix (e.g. plain on-disk images never archive-extracted).
 fn stripIndexPrefix(name: []const u8) []const u8 {
     if (name.len < 5 or name[4] != '_') return name;
     for (name[0..4]) |ch| if (ch < '0' or ch > '9') return name;
@@ -416,13 +439,23 @@ test "basename — strips top-level directory" {
     try testing.expectEqualStrings("a.fdi", basename("a.fdi"));
 }
 
-test "sanitizeAscii — keeps safe bytes, drops the rest" {
+test "sanitizeFsName — keeps UTF-8, drops only unsafe bytes" {
     var buf: [64]u8 = undefined;
-    try testing.expectEqualStrings("GAME_A.FDI", sanitizeAscii(&buf, "GAME_A.FDI"));
-    try testing.expectEqualStrings("Disk 1.fdi", sanitizeAscii(&buf, "Disk 1.fdi"));
-    // CP932 (Shift-JIS) bytes are dropped; the ASCII extension survives.
-    try testing.expectEqualStrings(".fdi", sanitizeAscii(&buf, "\x8b\xe0\x8c\xed.fdi"));
-    try testing.expectEqualStrings("", sanitizeAscii(&buf, "\x8b\xe0\x8c\xed"));
+    try testing.expectEqualStrings("GAME_A.FDI", sanitizeFsName(&buf, "GAME_A.FDI"));
+    try testing.expectEqualStrings("Disk 1.fdi", sanitizeFsName(&buf, "Disk 1.fdi"));
+    // UTF-8 (Japanese) bytes are preserved verbatim.
+    try testing.expectEqualStrings("ゲーム.fdi", sanitizeFsName(&buf, "ゲーム.fdi"));
+    // Path separators, control chars, and Windows-illegal chars are dropped.
+    try testing.expectEqualStrings("ab.fdi", sanitizeFsName(&buf, "a/b\t.f*di?"));
+}
+
+test "decodeName — CP932 decoded, valid UTF-8 passed through" {
+    var buf: [64]u8 = undefined;
+    // Already valid UTF-8 → returned unchanged.
+    try testing.expectEqualStrings("ゲーム.fdi", decodeName(&buf, "ゲーム.fdi"));
+    try testing.expectEqualStrings("GAME.FDI", decodeName(&buf, "GAME.FDI"));
+    // CP932 (Shift-JIS) bytes for 金庫 → UTF-8.
+    try testing.expectEqualStrings("金庫", decodeName(&buf, "\x8b\xe0\x8c\xc9"));
 }
 
 test "stripIndexPrefix — recovers the original label" {
@@ -446,20 +479,23 @@ test "dirname — parent directory of a path" {
     try testing.expectEqualStrings("", dirname("c.fdi"));
 }
 
-test "displayName — ASCII kept, non-ASCII falls back to Disk N" {
+test "displayName — UTF-8 kept, blank stem falls back to Disk N" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     try testing.expectEqualStrings("GAME_A.FDI", try displayName(a, "GAME_A.FDI", 0));
-    // All-CP932 basename sanitizes to just the extension → "Disk N" (1-based).
-    try testing.expectEqualStrings("Disk 3", try displayName(a, "\x8b\xe0\x8c\xed.fdi", 2));
-    try testing.expectEqualStrings("Disk 1", try displayName(a, "\x8b\xe0\x8c\xed", 0));
+    // Japanese (UTF-8) names are kept verbatim.
+    try testing.expectEqualStrings("ゲーム.fdi", try displayName(a, "ゲーム.fdi", 0));
+    // Extension-only label (nothing meaningful precedes the dot) → "Disk N".
+    try testing.expectEqualStrings("Disk 3", try displayName(a, ".fdi", 2));
+    try testing.expectEqualStrings("Disk 1", try displayName(a, "", 0));
 }
 
-test "displaySource — sanitized name or fallback" {
+test "displaySource — UTF-8 name or fallback" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     try testing.expectEqualStrings("GAME.ZIP", try displaySource(a, "GAME.ZIP", "Archive"));
-    try testing.expectEqualStrings("Folder", try displaySource(a, "\x8b\xe0\x8c\xed", "Folder"));
+    try testing.expectEqualStrings("ゲーム集", try displaySource(a, "ゲーム集", "Folder"));
+    try testing.expectEqualStrings("Folder", try displaySource(a, "", "Folder"));
 }

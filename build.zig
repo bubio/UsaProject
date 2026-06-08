@@ -316,6 +316,14 @@ pub fn build(b: *std.Build) void {
     // NFD
     zig_tests.root_module.addIncludePath(dep_nfd.path("src/include"));
 
+    // archive.zig's decodeName calls codecnv_sjistoutf8 (CP932 → UTF-8). The
+    // function is self-contained in sjisucs2.c (table-driven, no NP2kai globals),
+    // so we link just that one source — like path_tests' minimal C linkage.
+    zig_tests.root_module.addCSourceFiles(.{
+        .files = &.{"core/np2kai/codecnv/sjisucs2.c"},
+        .flags = full_flags,
+    });
+
     zig_tests.root_module.link_libc = true;
     test_step.dependOn(&b.addRunArtifact(zig_tests).step);
 
