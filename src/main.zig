@@ -113,7 +113,8 @@ export fn init() void {
         .logger = .{ .func = sokol.log.func },
     });
 
-    nk.setup(.{});
+    nk.setup(.{ .no_default_font = true });
+    nk.setupFont(16.0);
     ui.setup();
 
     setupDataDir();

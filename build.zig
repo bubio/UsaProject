@@ -21,6 +21,12 @@ pub fn build(b: *std.Build) void {
 
     exe.root_module.addImport("sokol", dep_sokol.module("sokol"));
 
+    // 日本語 GUI フォント (M PLUS 1p Regular, OFL)。.ttf を匿名 import すると
+    // `@import("ja_font")` が埋め込みバイト列 ([]const u8) を返す。
+    exe.root_module.addAnonymousImport("ja_font", .{
+        .root_source_file = b.path("assets/fonts/MPLUS1p-Regular.ttf"),
+    });
+
     // NFD-extended (native file dialogs). We pull the C/Obj-C sources via
     // build.zig.zon and compile only the backend matching the target OS.
     const dep_nfd = b.dependency("nfd_extended", .{});
