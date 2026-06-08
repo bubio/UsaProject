@@ -24,15 +24,19 @@ pub fn setup(desc: c.snk_desc_t) void {
     c.snk_setup(&desc);
 }
 
-// 日本語フォントアトラスは描画中ずっと参照されるため、アプリ全体で生存させる。
-var font_atlas: c.nk_font_atlas = undefined;
+// sokol 内部のフォントアトラス (_snuklear.atlas) を返すアクセサ。実体は
+// src/nuklear_impl.c。snk_shutdown() がこのアトラスを nk_font_atlas_clear で
+// 後始末するため、独自アトラスではなくこれへ焼き込む。
+extern fn snk_internal_atlas() *c.nk_font_atlas;
 
 // snk_setup(.{ .no_default_font = true }) の後に一度だけ呼ぶ。M PLUS 1p を
 // 焼き込んでフォントアトラスを差し替え、Nuklear のスタイルフォントに設定する。
-// 手順は sokol_nuklear.h の既定フォント生成 (no_default_font == false の経路) を踏襲。
+// 手順は sokol_nuklear.h の既定フォント生成 (no_default_font == false の経路) を踏襲し、
+// 既定経路と同じ _snuklear.atlas へ焼き込むことで終了時の後始末も sokol に委ねる。
 pub fn setupFont(px: f32) void {
-    c.nk_font_atlas_init_default(&font_atlas);
-    c.nk_font_atlas_begin(&font_atlas);
+    const font_atlas = snk_internal_atlas();
+    c.nk_font_atlas_init_default(font_atlas);
+    c.nk_font_atlas_begin(font_atlas);
 
     var cfg = c.nk_font_config(px);
     // ASCII + CJK 記号 + ひらがな/カタカナ (0x3000-0x30FF) + CJK 統合漢字を含むため
@@ -42,7 +46,7 @@ pub fn setupFont(px: f32) void {
     cfg.oversample_v = 1;
 
     const font = c.nk_font_atlas_add_from_memory(
-        &font_atlas,
+        font_atlas,
         @constCast(@ptrCast(ja_font)),
         ja_font.len,
         px,
@@ -51,7 +55,7 @@ pub fn setupFont(px: f32) void {
 
     var img_w: c_int = 0;
     var img_h: c_int = 0;
-    const pixels = c.nk_font_atlas_bake(&font_atlas, &img_w, &img_h, c.NK_FONT_ATLAS_RGBA32);
+    const pixels = c.nk_font_atlas_bake(font_atlas, &img_w, &img_h, c.NK_FONT_ATLAS_RGBA32);
 
     var img_desc = c.sg_image_desc{};
     img_desc.width = img_w;
@@ -82,8 +86,8 @@ pub fn setupFont(px: f32) void {
     snk_img_desc.sampler = smp;
     const snk_img = c.snk_make_image(&snk_img_desc);
 
-    c.nk_font_atlas_end(&font_atlas, c.snk_nkhandle(snk_img), null);
-    c.nk_font_atlas_cleanup(&font_atlas);
+    c.nk_font_atlas_end(font_atlas, c.snk_nkhandle(snk_img), null);
+    c.nk_font_atlas_cleanup(font_atlas);
 
     // snk 内部の nk_context ポインタを取得するために new_frame を一度呼ぶ
     // (描画前なので副作用なし)。スタイルフォントとカーソルを設定する。

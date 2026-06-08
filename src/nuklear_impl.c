@@ -14,3 +14,14 @@
 
 #define SOKOL_NUKLEAR_IMPL
 #include "sokol_nuklear.h"
+
+// no_default_font = true でカスタムフォントを焼き込む際、sokol 内部の
+// フォントアトラス (_snuklear.atlas) へアクセスするためのアクセサ。
+// 既定フォント経路 (no_default_font == false) と同じ _snuklear.atlas へ
+// 焼き込めば、snk_shutdown() の nk_font_atlas_clear(&_snuklear.atlas) が
+// そのまま後始末する。独自アトラスを持つと内部アトラスが未初期化のままとなり、
+// 終了時に nk_font_atlas_clear のアサートで abort するため、それを避ける。
+// _snuklear はこの翻訳単位 (SOKOL_NUKLEAR_IMPL) の static なのでここから参照可能。
+struct nk_font_atlas *snk_internal_atlas(void) {
+    return &_snuklear.atlas;
+}
