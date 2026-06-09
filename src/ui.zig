@@ -396,7 +396,16 @@ fn menuScreen(ctx: *c.nk_context) void {
 
 fn menuOther(ctx: *c.nk_context) void {
     c.nk_layout_row_push(ctx, 50);
-    if (c.nk_menu_begin_label(ctx, "Other", c.NK_TEXT_LEFT, c.nk_vec2(160, 80)) != 0) {
+    if (c.nk_menu_begin_label(ctx, "Other", c.NK_TEXT_LEFT, c.nk_vec2(200, 110)) != 0) {
+        c.nk_layout_row_dynamic(ctx, 22, 1);
+        // Reveal the data folder (ROMs, disk images, save states) in the OS
+        // file manager. Fast and non-modal, so run it inline.
+        if (c.nk_menu_item_label(ctx, "Open Data Folder", c.NK_TEXT_LEFT) != 0) {
+            platform.openDataDir(disk_alloc) catch |err| {
+                std.debug.print("!! could not open data folder: {s}\n", .{@errorName(err)});
+            };
+        }
+        menuSep(ctx);
         c.nk_layout_row_dynamic(ctx, 22, 1);
         if (c.nk_menu_item_label(ctx, "About...", c.NK_TEXT_LEFT) != 0) {
             ui_dialog.openAbout();

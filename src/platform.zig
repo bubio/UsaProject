@@ -29,6 +29,41 @@ pub fn resolveDataDirFor(allocator: std.mem.Allocator, home: []const u8, comptim
     return std.fmt.allocPrintSentinel(allocator, target.data_dir_template, .{ home, app_name }, 0) catch error.OutOfMemory;
 }
 
+// Io implementation used to spawn the OS file-manager opener. Initialized from
+// main() with the process environment so the child inherits PATH (to resolve
+// the opener) and the desktop session vars (DISPLAY/DBUS) xdg-open needs.
+var spawn_threaded: std.Io.Threaded = undefined;
+var spawn_io: ?std.Io = null;
+
+// Capture the process environment for later child spawns. Called once at
+// startup. processSpawn builds the child's argv/environ blocks with this gpa,
+// so it must be a real allocator (a failing one yields error.OutOfMemory).
+pub fn initSpawn(environ: std.process.Environ) void {
+    spawn_threaded = std.Io.Threaded.init(std.heap.page_allocator, .{ .environ = environ });
+    spawn_io = spawn_threaded.io();
+}
+
+// Reveal the app's data directory (ROMs, disks, save states live here) in the
+// OS file manager. The folder is created first so it always exists when opened,
+// even on a fresh install. Best-effort: a spawn failure just returns the error
+// for the caller to log.
+pub fn openDataDir(allocator: std.mem.Allocator) !void {
+    const io = spawn_io orelse return error.SpawnNotInitialized;
+    const dir = try resolveDataDir(allocator);
+    defer allocator.free(dir);
+    ensureExists(dir) catch {};
+
+    var child = try std.process.spawn(io, .{
+        .argv = &.{ os.open_cmd, dir },
+        .stdin = .ignore,
+        .stdout = .ignore,
+        .stderr = .ignore,
+    });
+    // The opener launches the file manager and exits promptly; reap it so it
+    // doesn't linger as a zombie.
+    _ = child.wait(io) catch {};
+}
+
 pub fn ensureExists(path: [:0]const u8) !void {
     const rc = std.c.mkdir(path.ptr, 0o755);
     if (rc == 0) return;

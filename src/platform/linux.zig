@@ -7,6 +7,9 @@ pub const shader_entry = "main";
 
 pub const data_dir_template = "{s}/.local/share/{s}";
 
+// Command that reveals a file or folder in the OS file manager.
+pub const open_cmd = "xdg-open";
+
 pub fn getHome() ?[*:0]const u8 {
     return std.c.getenv("HOME");
 }

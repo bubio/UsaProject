@@ -463,6 +463,10 @@ export fn cleanup() void {
 pub fn main(proc: std.process.Init.Minimal) void {
     const allocator = std.heap.page_allocator;
 
+    // Capture the process environment so the "Open Data Folder" menu item can
+    // spawn the OS file manager later with PATH and the desktop session vars.
+    platform.initSpawn(proc.environ);
+
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const argv = proc.args.toSlice(arena.allocator()) catch {
