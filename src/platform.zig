@@ -79,6 +79,12 @@ test "resolveDataDirFor — macOS layout" {
     try std.testing.expectEqualStrings("/Users/alice/Library/Application Support/UsaProject", got);
 }
 
+test "resolveDataDirFor — Windows layout uses backslashes for Explorer" {
+    const got = try resolveDataDirFor(std.testing.allocator, "C:\\Users\\alice", windows);
+    defer std.testing.allocator.free(got);
+    try std.testing.expectEqualStrings("C:\\Users\\alice\\AppData\\Local\\UsaProject", got);
+}
+
 test "resolveDataDirFor — Linux layout" {
     const got = try resolveDataDirFor(std.testing.allocator, "/home/bob", linux);
     defer std.testing.allocator.free(got);
