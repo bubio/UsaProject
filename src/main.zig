@@ -441,6 +441,7 @@ export fn frame() void {
     sg.commit();
 
     ui.flushPendingActions();
+    ui.flushDroppedFiles();
 }
 
 export fn cleanup() void {
@@ -495,5 +496,8 @@ pub fn main(proc: std.process.Init.Minimal) void {
         .high_dpi = false,
         .icon = makeAppIcon(),
         .logger = .{ .func = sokol.log.func },
+        .enable_dragndrop = true,
+        .max_dropped_files = 4,
+        .max_dropped_file_path_length = 4096, // long/Japanese paths (Application Support)
     });
 }

@@ -731,6 +731,17 @@ fn resetIfHdd(kind: cli.DiskKind) void {
     if (kind == .hdd) cz.pccore_reset();
 }
 
+// Mount a plain on-disk image into a drive, then build the drive's swap list
+// from sibling images in the same folder (best-effort: a scan failure leaves
+// the drive mounted with no swap list). Does NOT reset (HDD) or record history
+// — callers do that, so a multi-file drop can reset just once.
+fn mountPlainInto(kind: cli.DiskKind, drv: u32, path: [:0]const u8) void {
+    insertOne(kind, drv, path.ptr);
+    if (archive.scanFolder(disk_alloc, path, kind)) |set| {
+        setSlot(kind, drv, set, indexOfPath(set, path));
+    } else |_| clearSlot(kind, drv);
+}
+
 // --- State save / load ---
 //
 // __LIBRETRO__ build: statsave_save_d/load_d take the path directly and do the
@@ -840,14 +851,9 @@ fn openSingle(kind: cli.DiskKind, drv: u32) void {
 // On a successful open the original `path` is recorded in the recent history.
 fn mountPath(kind: cli.DiskKind, drv: u32, path: [:0]const u8) void {
     if (!archive.isArchive(path)) {
-        insertOne(kind, drv, path.ptr);
+        mountPlainInto(kind, drv, path);
         resetIfHdd(kind);
         history.record(kind, path);
-        // Build a swap list from the folder's sibling images. Best-effort: a
-        // scan failure just leaves the drive mounted with no swap list.
-        if (archive.scanFolder(disk_alloc, path, kind)) |set| {
-            setSlot(kind, drv, set, indexOfPath(set, path));
-        } else |_| clearSlot(kind, drv);
         return;
     }
 
@@ -896,11 +902,8 @@ fn openFddBoth() void {
     defer disk_alloc.free(path);
 
     if (!archive.isArchive(path)) {
-        insertOne(.fdd, 0, path.ptr);
+        mountPlainInto(.fdd, 0, path);
         history.record(.fdd, path);
-        if (archive.scanFolder(disk_alloc, path, .fdd)) |set| {
-            setSlot(.fdd, 0, set, indexOfPath(set, path));
-        } else |_| clearSlot(.fdd, 0);
         return;
     }
 
@@ -939,6 +942,147 @@ fn openFddBoth() void {
             setSlot(.fdd, 1, s, idx);
         } else |_| clearSlot(.fdd, 1);
     }
+}
+
+// --- Drag & drop ---
+//
+// Files dropped onto the window are captured in the sokol event callback
+// (handleDrop) and mounted at the next frame boundary (flushDroppedFiles) —
+// the same deferral as the menu's file dialogs, so a drop never mounts
+// mid-event or while a modal/dialog is up. Routing is by extension
+// (cli.classifyExt): FDD images go to the FDD drives, HDD images to the IDE
+// drives, and a lone archive runs the full mountPath flow (incl. multi-disk
+// modal). Drop position is ignored.
+var pending_drops: std.ArrayList([:0]u8) = .empty;
+
+// Queue the paths from a FILES_DROPPED event. Sokol's path slices are only
+// valid until the next drop, so each is duplicated into disk_alloc; ownership
+// stays with pending_drops until flushDroppedFiles frees them.
+pub fn handleDrop() void {
+    const n = sapp.getNumDroppedFiles();
+    var i: i32 = 0;
+    while (i < n) : (i += 1) {
+        const owned = disk_alloc.dupeZ(u8, sapp.getDroppedFilePath(i)) catch {
+            std.debug.print("!! out of memory queueing dropped file\n", .{});
+            return;
+        };
+        pending_drops.append(disk_alloc, owned) catch {
+            disk_alloc.free(owned);
+            return;
+        };
+    }
+}
+
+// Mount queued drops at a frame boundary (called from main.zig's frame loop).
+// While a file dialog or modal is up, leave the queue and retry next frame so
+// a drop never races a dialog.
+pub fn flushDroppedFiles() void {
+    if (pending_drops.items.len == 0) return;
+    if (dialog_open or ds_active() or rs_active() or ss_active()) return;
+
+    const paths = pending_drops.toOwnedSlice(disk_alloc) catch return;
+    defer {
+        for (paths) |p| disk_alloc.free(p);
+        disk_alloc.free(paths);
+    }
+    mountDropped(paths);
+}
+
+// Route dropped files to drives by extension. A single file gets the full
+// mountPath flow (sibling swap list, multi-disk archive modal). Several files
+// are auto-distributed: plain FDD images fill FDD1/FDD2 and plain HDD images
+// fill IDE0/IDE1, both in filename order; archives in a multi-file drop are
+// skipped to keep the behavior predictable.
+fn mountDropped(paths: []const [:0]u8) void {
+    if (paths.len == 0) return;
+    if (paths.len == 1) {
+        mountDroppedSingle(paths[0]);
+        return;
+    }
+
+    var fdds: [2][:0]const u8 = undefined;
+    var hdds: [2][:0]const u8 = undefined;
+    var nf: usize = 0;
+    var nh: usize = 0;
+    for (paths) |p| {
+        const kind = cli.classifyExt(p) orelse {
+            std.debug.print("!! ignoring dropped file (unknown type): {s}\n", .{p});
+            continue;
+        };
+        switch (kind) {
+            .fdd => if (nf < 2) {
+                fdds[nf] = p;
+                nf += 1;
+            } else std.debug.print("!! ignoring extra dropped fdd image: {s}\n", .{p}),
+            .hdd => if (nh < 2) {
+                hdds[nh] = p;
+                nh += 1;
+            } else std.debug.print("!! ignoring extra dropped hdd image: {s}\n", .{p}),
+            .archive => std.debug.print("!! ignoring dropped archive in multi-file drop: {s}\n", .{p}),
+        }
+    }
+
+    // The drop order is undefined; sort each kind by path so FDD1/FDD2 (and the
+    // IDE drives) fill in filename order, matching the archive auto-mount.
+    sortByPath(fdds[0..nf]);
+    sortByPath(hdds[0..nh]);
+
+    // HDD images set config and bind on reset; FDD images mount live and must
+    // go in AFTER the reset — mirrors the CLI's configureHdds → reset → insertFdds.
+    for (hdds[0..nh], 0..) |p, i| {
+        mountPlainInto(.hdd, @intCast(i), p);
+        history.record(.hdd, p);
+    }
+    if (nh > 0) cz.pccore_reset();
+    for (fdds[0..nf], 0..) |p, i| {
+        mountPlainInto(.fdd, @intCast(i), p);
+        history.record(.fdd, p);
+    }
+}
+
+fn sortByPath(items: [][:0]const u8) void {
+    std.mem.sort([:0]const u8, items, {}, struct {
+        fn lt(_: void, a: [:0]const u8, b: [:0]const u8) bool {
+            return std.mem.lessThan(u8, a, b);
+        }
+    }.lt);
+}
+
+// A single dropped file: route by extension. An archive's drive type isn't
+// known from its extension, so it goes through mountDroppedArchive.
+fn mountDroppedSingle(path: [:0]u8) void {
+    const kind = cli.classifyExt(path) orelse {
+        std.debug.print("!! ignoring dropped file (unknown type): {s}\n", .{path});
+        return;
+    };
+    if (kind == .archive) {
+        mountDroppedArchive(path);
+        return;
+    }
+    mountPath(kind, 0, path);
+}
+
+// Peek inside a dropped archive to pick its target: FDD if it holds any FDD
+// image, else HDD. mountPath re-extracts (cache hit) and runs the normal flow,
+// including the multi-disk "Select Disk" modal.
+fn mountDroppedArchive(path: [:0]u8) void {
+    var set = archive.extractImages(disk_alloc, path) catch |err| {
+        std.debug.print("!! could not open dropped archive '{s}': {s}\n", .{ path, @errorName(err) });
+        return;
+    };
+    var has_fdd = false;
+    var has_hdd = false;
+    for (set.images) |img| {
+        if (img.kind == .fdd) has_fdd = true;
+        if (img.kind == .hdd) has_hdd = true;
+    }
+    set.deinit();
+
+    const kind: cli.DiskKind = if (has_fdd) .fdd else if (has_hdd) .hdd else {
+        std.debug.print("!! dropped archive has no disk image: {s}\n", .{path});
+        return;
+    };
+    mountPath(kind, 0, path);
 }
 
 // --- Disk-selection modal ---

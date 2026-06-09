@@ -184,6 +184,13 @@ pub fn isMouseCaptured() bool {
 pub fn handleEvent(ev: [*c]const sapp.Event) callconv(.c) void {
     const event = ev.*;
 
+    // Files dropped onto the window: queue them for mounting at a frame
+    // boundary (ui.flushDroppedFiles), regardless of mouse-capture state.
+    if (event.type == .FILES_DROPPED) {
+        ui.handleDrop();
+        return;
+    }
+
     // Host shortcuts — always active regardless of Nuklear/mouse state
     if (event.type == .KEY_DOWN) {
         if (event.key_code == .ESCAPE) {
