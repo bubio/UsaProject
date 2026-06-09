@@ -5,7 +5,11 @@ pub const shader_vs_source = @embedFile("shaders/blit.vs.hlsl");
 pub const shader_fs_source = @embedFile("shaders/blit.fs.hlsl");
 pub const shader_entry = "main";
 
-pub const data_dir_template = "{s}/AppData/Local/{s}";
+// Backslashes (not forward slashes): the path is handed to `explorer` to
+// reveal the folder, and Explorer only parses backslash-separated paths —
+// given forward slashes it ignores the argument and opens Documents instead.
+// Win32 file APIs accept either separator, so the rest of the code is unaffected.
+pub const data_dir_template = "{s}\\AppData\\Local\\{s}";
 
 // Command that reveals a file or folder in the OS file manager (Explorer).
 pub const open_cmd = "explorer";
