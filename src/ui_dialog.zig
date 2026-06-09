@@ -73,7 +73,6 @@ const ConfigState = struct {
     baseclock: u32,
     multiple: u32,
     model: [8]u8,
-    samplingrate: u32,
     delayms: u16,
     sound_sw: u8,
     extmem: u16,
@@ -82,7 +81,7 @@ const ConfigState = struct {
     fn eql(a: ConfigState, b: ConfigState) bool {
         return a.baseclock == b.baseclock and a.multiple == b.multiple and
             std.mem.eql(u8, &a.model, &b.model) and
-            a.samplingrate == b.samplingrate and a.delayms == b.delayms and
+            a.delayms == b.delayms and
             a.sound_sw == b.sound_sw and a.extmem == b.extmem and
             a.cpu_index == b.cpu_index;
     }
@@ -95,7 +94,6 @@ fn captureConfigState() ConfigState {
         .baseclock = cz.c.np2cfg.baseclock,
         .multiple = cz.c.np2cfg.multiple,
         .model = cz.c.np2cfg.model,
-        .samplingrate = cz.c.np2cfg.samplingrate,
         .delayms = cz.c.np2cfg.delayms,
         .sound_sw = cz.c.np2cfg.SOUND_SW,
         .extmem = cz.c.np2cfg.EXTMEM,
@@ -118,8 +116,6 @@ const cpu_labels = [_][*:0]const u8{ "80386", "i486SX", "i486DX", "Pentium" };
 const multipliers = [_]u32{ 1, 2, 4, 5, 6, 8, 10, 12, 16, 20 };
 const model_labels = [_][*:0]const u8{ "PC-9801VM", "PC-9801VX", "PC-286" };
 const model_names = [_][*:0]const u8{ "VM", "VX", "PC286" };
-const sample_rates = [_]u32{ 22050, 44100, 48000 };
-const sample_rate_labels = [_][*:0]const u8{ "22050", "44100", "48000" };
 
 const snd_board_vals = [_]u8{ 0x00, 0x02, 0x04, 0x06, 0x14, 0x08, 0x80 };
 const snd_board_labels = [_][*:0]const u8{
@@ -168,7 +164,7 @@ fn drawConfigure(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
         c.nk_layout_row_end(ctx);
 
         // --- Tab body (scrollable; section boxes nested inside) ---
-        c.nk_layout_row_dynamic(ctx, dh - 80, 1);
+        c.nk_layout_row_dynamic(ctx, dh - 100, 1);
         if (c.nk_group_begin(ctx, "cfg_body", 0) != 0) {
             switch (active_tab) {
                 0 => drawSystemTab(ctx, cfg),
@@ -177,6 +173,13 @@ fn drawConfigure(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
             }
             c.nk_group_end(ctx);
         }
+
+        // --- Shared footer: legend for the "*" markers, visible on every tab.
+        // Sections titled with "*" (CPU / Architecture / Memory / Sound Device)
+        // hold the fields tracked by ConfigState; changing any of them resets
+        // the core on close. Everything else applies live.
+        c.nk_layout_row_dynamic(ctx, 16, 1);
+        c.nk_label_colored(ctx, "* Requires reset (applied on close)", c.NK_TEXT_LEFT, c.nk_rgb(0xFF, 0x80, 0x40));
     }
     c.nk_end(ctx);
 
@@ -190,7 +193,7 @@ fn drawConfigure(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
 // --- Tab 1: System (CPU / Architecture / Memory / Keyboard) ---
 
 fn drawSystemTab(ctx: *c.nk_context, cfg: anytype) void {
-    if (beginBox(ctx, "sys_cpu", "CPU", 118)) {
+    if (beginBox(ctx, "sys_cpu", "CPU *", 118)) {
         c.nk_layout_row_dynamic(ctx, 22, 2);
         for (base_clocks, 0..) |clk, i| {
             const was: c_int = if (cfg.baseclock == clk) 1 else 0;
@@ -219,7 +222,7 @@ fn drawSystemTab(ctx: *c.nk_context, cfg: anytype) void {
         c.nk_group_end(ctx);
     }
 
-    if (beginBox(ctx, "sys_arch", "Architecture", 58)) {
+    if (beginBox(ctx, "sys_arch", "Architecture *", 58)) {
         c.nk_layout_row_dynamic(ctx, 22, 3);
         const cur_model = modelToIdx(cfg.model);
         for (model_labels, 0..) |lbl, i| {
@@ -230,7 +233,7 @@ fn drawSystemTab(ctx: *c.nk_context, cfg: anytype) void {
         c.nk_group_end(ctx);
     }
 
-    if (beginBox(ctx, "sys_mem", "Memory", 58)) {
+    if (beginBox(ctx, "sys_mem", "Memory *", 58)) {
         c.nk_layout_row_dynamic(ctx, 22, 1);
         var mem_idx: usize = 1;
         for (mem_vals, 0..) |v, i| {
@@ -269,9 +272,6 @@ fn drawSystemTab(ctx: *c.nk_context, cfg: anytype) void {
         c.nk_layout_row_end(ctx);
         c.nk_group_end(ctx);
     }
-
-    c.nk_layout_row_dynamic(ctx, 16, 1);
-    c.nk_label_colored(ctx, "* Auto-reset on close if changed", c.NK_TEXT_LEFT, c.nk_rgb(0xFF, 0x80, 0x40));
 }
 
 // --- Tab 2: Screen (display toggles / GDC / Graphic Charger / Skipline / Mono) ---
@@ -379,10 +379,10 @@ fn drawScreenTab(ctx: *c.nk_context, cfg: anytype) void {
     }
 }
 
-// --- Tab 3: Sound (board / sampling / buffer / beep / seek / mixer) ---
+// --- Tab 3: Sound (board / buffer / beep / seek / mixer) ---
 
 fn drawSoundTab(ctx: *c.nk_context, cfg: anytype) void {
-    if (beginBox(ctx, "snd_dev", "Sound Device", 110)) {
+    if (beginBox(ctx, "snd_dev", "Sound Device *", 84)) {
         c.nk_layout_row_begin(ctx, c.NK_STATIC, 22, 2);
         c.nk_layout_row_push(ctx, 95);
         c.nk_label(ctx, "Sound Board:", c.NK_TEXT_LEFT);
@@ -394,19 +394,6 @@ fn drawSoundTab(ctx: *c.nk_context, cfg: anytype) void {
         const new_snd: usize = @intCast(c.nk_combo(ctx, &snd_board_labels,
             snd_board_labels.len, @intCast(snd_idx), 22, c.nk_vec2(190, 170)));
         cfg.SOUND_SW = snd_board_vals[new_snd];
-        c.nk_layout_row_end(ctx);
-
-        c.nk_layout_row_begin(ctx, c.NK_STATIC, 22, 2);
-        c.nk_layout_row_push(ctx, 95);
-        c.nk_label(ctx, "Sampling rate:", c.NK_TEXT_LEFT);
-        c.nk_layout_row_push(ctx, 120);
-        var sr_idx: usize = 1;
-        for (sample_rates, 0..) |sr, i| {
-            if (cfg.samplingrate == sr) { sr_idx = i; break; }
-        }
-        const new_sr: usize = @intCast(c.nk_combo(ctx, &sample_rate_labels,
-            sample_rate_labels.len, @intCast(sr_idx), 22, c.nk_vec2(120, 90)));
-        cfg.samplingrate = sample_rates[new_sr];
         c.nk_layout_row_end(ctx);
 
         c.nk_layout_row_begin(ctx, c.NK_STATIC, 22, 3);

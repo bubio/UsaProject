@@ -47,7 +47,7 @@ fn u32entry(key: []const u8, ptr: *u32) Entry {
     return .{ .key = key, .kind = .u32_val, .ptr = ptr };
 }
 
-fn getEntries() [24]Entry {
+fn getEntries() [23]Entry {
     const cfg = &cz.c.np2cfg;
     return .{
         u32entry("clk_base", &cfg.baseclock),
@@ -62,7 +62,8 @@ fn getEntries() [24]Entry {
         u8entry("GRC_MODE", &cfg.grcg),
         u8entry("color16", &cfg.color16),
 
-        u32entry("SampleHz", &cfg.samplingrate),
+        // samplingrate is fixed at 44100 (the sokol_audio output rate); it is
+        // not exposed or persisted, so it has no INI entry here.
         u16entry("Latencys", &cfg.delayms),
         u8entry("SNDboard", &cfg.SOUND_SW),
         u8entry("BEEP_vol", &cfg.BEEP_VOL),
