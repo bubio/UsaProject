@@ -1,4 +1,4 @@
-# UsaProject
+# Usa Project
 
 <p align="center">
   <img src="assets/AppIcon.png" alt="UsaProject" width="128" height="128">
@@ -20,7 +20,7 @@ A PC-98 emulator frontend rebuilt with **Zig** and **sokol**, powered by the **N
 This project aims to provide a lightweight, modern, and cross-platform PC-98 experience.
 
 <p align="center">
-  <img src="docs/Screenshot.png" alt="UsaProject App ScreenShot">
+  <img src="docs/Screenshot1.png" alt="UsaProject App ScreenShot">
 </p>
 
 ## Features
@@ -59,6 +59,18 @@ To create a standalone `.app` bundle with the icon:
 zig build bundle -Doptimize=ReleaseFast
 ```
 The output will be in `zig-out/UsaProject.app`.
+
+>
+> **Option 1: Remove the quarantine flag via Terminal**
+> ```bash
+> xattr -cr /Applications/UsaProject.app
+> ```
+>
+> **Option 2: Allow via System Settings**
+> 1. Attempt to open the app and let it get blocked
+> 2. Open **System Settings** → **Privacy & Security**
+> 3. Click **"Open Anyway"** next to the message about UsaProject being blocked
+  
 
 ### Linux
 
