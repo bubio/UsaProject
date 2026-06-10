@@ -16,6 +16,7 @@
 #include <stdarg.h>
 #include <pccore.h>
 #include <vram/scrndraw.h>
+#include <vram/videofilter.h>
 #include <vram/palettes.h>
 #include <io/iocore.h>
 #include <fdd/diskdrv.h>
@@ -552,6 +553,51 @@ void usa_apply_config_overrides(void) {
     // updates to opncfg.fmvol or psggencfg.volume[] — so live Sound Mixer
     // slider changes have no audible effect. Pin the legacy path on.
     np2cfg.usefmgen = 0;
+}
+
+// Load NP2kai's video filter with the documented HSV-smooth preset and set
+// its initial on/off state. Always populates the profile so the filter can be
+// toggled live from the Screen menu later; `initial_on` only decides whether
+// it starts active.
+//
+// UsaProject does not read np2kai's .cfg (ini_read is stubbed), so the vf1_*
+// fields stay zero unless we populate them here. The preset mirrors the NP2kai
+// docs' example "vf1_p0_p0=1,6,15,5,30,30,90,0":
+//   [0]=1  enable this filter (within the profile)
+//   [1]=6  type = VFE_TYPE_HSVSMOOTH (THRU=0..ROTATEH=5, HSVSMOOTH=6)
+//   [2]=15 radius R/10dot = 1.5dot (neighbouring dots)
+//   [3]=5  sample N=5 → 5x5 window
+//   [4]=30 dH (hue tolerance, 0..180)
+//   [5]=30 dS (saturation tolerance, 0..128)
+//   [6]=90 dV (value tolerance, 0..128)
+//   [7]=0  weight type (0:none 1:linear 2:sign)
+//
+// pccore_init() reads these into hVFMng1, so this must run BEFORE it.
+void usa_setup_video_filter(int initial_on) {
+#if defined(SUPPORT_VIDEOFILTER)
+    static const uint32_t hsv_preset[2 + 6] = {1, 6, 15, 5, 30, 30, 90, 0};
+    np2cfg.vf1_enable = initial_on ? 1 : 0;
+    np2cfg.vf1_bmponly = 0;       // also filter the live screen, not just bitmaps
+    np2cfg.vf1_pcount = 1;        // one profile
+    np2cfg.vf1_pno = 0;           // use profile 0
+    np2cfg.vf1_profile[0][0] = 1; // profile 0: filter count = 1
+    np2cfg.vf1_profile[0][1] = 0; // profile 0: output filter index = 0
+    memcpy(np2cfg.vf1_param[0][0], hsv_preset, sizeof(hsv_preset));
+#else
+    (void)initial_on;
+#endif
+}
+
+// Toggle the video filter live. scrndraw_draw() polls VideoFilter_GetEnable()
+// every frame and forces a full-screen redraw when the flag flips, so this
+// takes effect on the next frame.
+void usa_set_video_filter(int on) {
+#if defined(SUPPORT_VIDEOFILTER)
+    np2cfg.vf1_enable = on ? 1 : 0;
+    VideoFilter_SetEnable(hVFMng1, on ? TRUE : FALSE);
+#else
+    (void)on;
+#endif
 }
 
 void np2_set_model(const char *name) {

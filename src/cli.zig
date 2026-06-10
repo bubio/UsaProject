@@ -13,6 +13,7 @@ pub const Options = struct {
     help: bool = false,
     audio_capture: ?[:0]const u8 = null,
     audio_autotest: bool = false,
+    video_filter: bool = false,
 
     pub fn deinit(self: *Options, allocator: std.mem.Allocator) void {
         if (self.model) |m| allocator.free(m);
@@ -60,6 +61,7 @@ pub const usage_text =
     \\
     \\Options:
     \\  --model NAME    PC-98 model: VM, VX, 286, EPSON (default: VX)
+    \\  --video-filter  Enable NP2kai HSV-smooth video filter
     \\  -h, --help      Show this help
     \\
     \\Positional DISK_PATH arguments are routed by extension:
@@ -135,6 +137,10 @@ pub fn parse(allocator: std.mem.Allocator, args: []const []const u8) ParseError!
             opts.audio_autotest = true;
             continue;
         }
+        if (std.mem.eql(u8, a, "--video-filter")) {
+            opts.video_filter = true;
+            continue;
+        }
         if (std.mem.startsWith(u8, a, "-")) {
             return error.UnknownOption;
         }
@@ -192,6 +198,18 @@ test "parse — --model missing value" {
 
 test "parse — --model too long" {
     try testing.expectError(error.ModelTooLong, parse(testing.allocator, &.{ "--model", "TOOLONGMODEL" }));
+}
+
+test "parse — --video-filter sets flag" {
+    var opts = try parse(testing.allocator, &.{"--video-filter"});
+    defer opts.deinit(testing.allocator);
+    try testing.expect(opts.video_filter);
+}
+
+test "parse — video_filter defaults off" {
+    var opts = try parse(testing.allocator, &.{});
+    defer opts.deinit(testing.allocator);
+    try testing.expect(!opts.video_filter);
 }
 
 test "parse — -h sets help" {

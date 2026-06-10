@@ -123,6 +123,7 @@ pub fn build(b: *std.Build) void {
         "SUPPORT_UTF8",
         "SUPPORT_V30EXT",
         "SUPPORT_V30ORIGINAL",
+        "SUPPORT_VIDEOFILTER",
         "SUPPORT_VPCVHD",
         "USE_MAME",
         "USE_MAME_BSD",

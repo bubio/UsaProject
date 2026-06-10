@@ -67,6 +67,7 @@ const State = struct {
     image: sg.Image = .{},
     view: sg.View = .{},
     sampler: sg.Sampler = .{},
+    sampler_linear: sg.Sampler = .{},
 };
 
 var state: State = .{};
@@ -134,6 +135,13 @@ export fn init() void {
         // because the reset's diskdrv_hddbind() binds drives from the config.
         configureHdds(expanded_disks);
     }
+    // Always load the HSV-smooth profile into np2cfg before pccore_init() reads
+    // it into the filter manager, so the Screen menu can toggle it live. The
+    // --video-filter flag only decides whether it starts on. UsaProject never
+    // reads np2kai's .cfg, so this is the only path that configures it.
+    const vf_on = if (parsed_opts) |o| o.video_filter else false;
+    cz.usa_setup_video_filter(if (vf_on) 1 else 0);
+    ui.display_hsv = vf_on;
     cz.pccore_init();
     cz.pccore_reset();
     if (parsed_opts) |opts| {
@@ -155,9 +163,16 @@ export fn init() void {
         .texture = .{ .image = state.image },
     });
 
+    // Two samplers for the PC-98 screen, swapped live from the Screen menu:
+    //   sampler        — nearest-neighbour: crisp integer-scaled pixels (default)
+    //   sampler_linear — bilinear: smooth (blurred) upscale
     state.sampler = sg.makeSampler(.{
         .min_filter = .NEAREST,
         .mag_filter = .NEAREST,
+    });
+    state.sampler_linear = sg.makeSampler(.{
+        .min_filter = .LINEAR,
+        .mag_filter = .LINEAR,
     });
 
     // Full-screen quad; placement within the window is done via sg.applyViewport.
@@ -432,6 +447,8 @@ export fn frame() void {
 
     sg.beginPass(.{ .action = state.pass_action, .swapchain = sglue.swapchain() });
     sg.applyPipeline(state.pipeline);
+    // Live scaling-filter choice from the Screen menu (nearest vs linear).
+    state.bindings.samplers[0] = if (ui.display_scale_linear) state.sampler_linear else state.sampler;
     sg.applyBindings(state.bindings);
     const vp = fbViewport(cur_w, cur_h);
     sg.applyViewport(vp.x, vp.y, vp.w, vp.h, true);
