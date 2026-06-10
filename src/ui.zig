@@ -24,6 +24,14 @@ const CHROME: u32 = MENU_HEIGHT + STATUS_HEIGHT;
 var user_scale: u32 = 1;
 var was_fullscreen: bool = false;
 
+// Display filters toggled from the Screen menu (not persisted).
+//   display_scale_linear — upscale the PC-98 screen with bilinear (smooth)
+//     instead of nearest-neighbour (crisp). Read by main.zig per frame.
+//   display_hsv — NP2kai HSV-smooth video filter on the emulated output.
+//     Set initially by main.zig from --video-filter; toggled here live.
+pub var display_scale_linear: bool = false;
+pub var display_hsv: bool = false;
+
 fn applyScale(n: u32) void {
     platform.os.setWindowSize(FB_WIDTH * n, FB_HEIGHT * n + CHROME);
 }
@@ -378,7 +386,7 @@ fn menuHdd(ctx: *c.nk_context) void {
 
 fn menuScreen(ctx: *c.nk_context) void {
     c.nk_layout_row_push(ctx, 60);
-    if (c.nk_menu_begin_label(ctx, "Screen", c.NK_TEXT_LEFT, c.nk_vec2(160, 220)) != 0) {
+    if (c.nk_menu_begin_label(ctx, "Screen", c.NK_TEXT_LEFT, c.nk_vec2(180, 300)) != 0) {
         c.nk_layout_row_dynamic(ctx, 22, 1);
         if (c.nk_menu_item_label(ctx, "FullScreen", c.NK_TEXT_LEFT) != 0) {
             sapp.toggleFullscreen();
@@ -390,6 +398,21 @@ fn menuScreen(ctx: *c.nk_context) void {
         if (c.nk_menu_item_label(ctx, "Window x2", c.NK_TEXT_LEFT) != 0) setWindowScale(2);
         if (c.nk_menu_item_label(ctx, "Window x3", c.NK_TEXT_LEFT) != 0) setWindowScale(3);
         if (c.nk_menu_item_label(ctx, "Window x4", c.NK_TEXT_LEFT) != 0) setWindowScale(4);
+
+        menuSep(ctx);
+        c.nk_layout_row_dynamic(ctx, 22, 1);
+        // Smooth Scaling — bilinear upscale instead of nearest-neighbour.
+        var linear_v: c_int = if (display_scale_linear) 1 else 0;
+        _ = c.nk_checkbox_label(ctx, "Smooth Scaling", &linear_v);
+        display_scale_linear = linear_v != 0;
+        // HSV Filter — NP2kai HSV-smooth on the emulated output; toggled live.
+        var hsv_v: c_int = if (display_hsv) 1 else 0;
+        _ = c.nk_checkbox_label(ctx, "HSV Filter", &hsv_v);
+        const hsv_new = hsv_v != 0;
+        if (hsv_new != display_hsv) {
+            display_hsv = hsv_new;
+            cz.usa_set_video_filter(if (hsv_new) 1 else 0);
+        }
         c.nk_menu_end(ctx);
     }
 }
