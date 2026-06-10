@@ -427,8 +427,9 @@ void usa_mouse_btn_up(int left) {
 }
 
 // Reset with HELP key held (for BIOS system setup menu)
+void usa_pccore_reset(void); // defined below; re-applies the Sound Mixer after reset
 void usa_reset_with_help(void) {
-	pccore_reset();
+	usa_pccore_reset();
 	keystat_keydown(0x3f);
 }
 
@@ -671,6 +672,18 @@ void usa_beep_setvol(unsigned vol) {
 // glue wraps the existing core function so the dialog code stays in Zig.
 void fmboard_updatevolume(void);
 void usa_sound_apply_volumes(void) {
+    fmboard_updatevolume();
+}
+
+// pccore_reset() resets every sound chip back to its power-on volume,
+// dropping the FMGEN linear volumes / cs4231 scaling that the basic
+// sound_init() path never establishes — so the Sound Mixer settings end up
+// ignored after a reset (including the initial reset at startup). Wrap the
+// core reset and re-apply the full np2cfg.vol_* mixer afterwards, matching
+// the live slider-edit path. Done here in the glue layer so NP2kai's core
+// stays unpatched. All reset call sites route through this wrapper.
+void usa_pccore_reset(void) {
+    pccore_reset();
     fmboard_updatevolume();
 }
 
