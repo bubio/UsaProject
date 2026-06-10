@@ -568,17 +568,50 @@ fn drawVolumeIcon(ctx: *c.nk_context) void {
     }
 }
 
+// Master-volume bar. Rendered and hit-tested by hand instead of nk_slide_float:
+// the stock Nuklear slider only moves while you drag its small knob (a click on
+// the track is ignored, and at full volume the knob sits jammed against the
+// right edge where it is nearly impossible to grab). It also goes dead whenever
+// the status-bar window is flagged read-only — which Nuklear does to every
+// non-top window, e.g. while a dialog is open. We instead poll ctx.input
+// directly, exactly like drawVolumeIcon, so a click or drag anywhere along the
+// bar sets the level and the control keeps working regardless of window focus.
 fn drawVolumeSlider(ctx: *c.nk_context) void {
+    const canvas = c.nk_window_get_canvas(ctx);
+    var b: c.struct_nk_rect = undefined;
+    _ = c.nk_widget(&b, ctx);
+
     const cfg = &cz.c.np2cfg;
-    const cur = cfg.vol_master;
-    var vf: f32 = @floatFromInt(cur);
-    vf = c.nk_slide_float(ctx, 0, vf, vol_max, 1);
-    const nv: u8 = @intFromFloat(vf);
-    if (nv != cur) {
-        cfg.vol_master = nv;
-        if (nv > 0) pre_mute_vol = nv;
-        cz.usa_sound_apply_volumes();
+
+    // Track geometry: a thin horizontal rail inset slightly from the cell edges
+    // so the knob does not overflow at the 0 / 100 extremes.
+    const pad: f32 = 6;
+    const tx = b.x + pad;
+    const tw = b.w - 2 * pad;
+
+    // A press that began inside the cell (and is still held) drives the value
+    // from the pointer's x — this covers both a single click and a drag.
+    if (tw > 0 and c.nk_input_has_mouse_click_down_in_rect(&ctx.input, c.NK_BUTTON_LEFT, b, c.nk_true) != 0) {
+        const rel = std.math.clamp((ctx.input.mouse.pos.x - tx) / tw, 0.0, 1.0);
+        const nv: u8 = @intFromFloat(@round(rel * vol_max));
+        if (nv != cfg.vol_master) {
+            cfg.vol_master = nv;
+            if (nv > 0) pre_mute_vol = nv;
+            cz.usa_sound_apply_volumes();
+        }
     }
+
+    const ratio: f32 = @as(f32, @floatFromInt(cfg.vol_master)) / vol_max;
+    const cy = b.y + b.h / 2.0;
+    const track_h: f32 = 4;
+    const track_y = cy - track_h / 2.0;
+    const knob_r: f32 = 5;
+    const kx = tx + tw * ratio;
+
+    // Unfilled rail, filled portion up to the current level, then the knob.
+    c.nk_fill_rect(canvas, c.nk_rect(tx, track_y, tw, track_h), 2, c.nk_rgb(0x50, 0x50, 0x50));
+    c.nk_fill_rect(canvas, c.nk_rect(tx, track_y, tw * ratio, track_h), 2, c.nk_rgb(0xC0, 0xC0, 0xC0));
+    c.nk_fill_circle(canvas, c.nk_rect(kx - knob_r, cy - knob_r, knob_r * 2, knob_r * 2), c.nk_rgb(0xE8, 0xE8, 0xE8));
 }
 
 // Mouse icon reflecting capture state: filled orange while the pointer is
