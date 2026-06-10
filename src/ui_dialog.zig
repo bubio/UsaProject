@@ -56,10 +56,48 @@ fn handleClose(ctx: *c.nk_context, name: [*:0]const u8, show: *bool) bool {
     return false;
 }
 
+// Fixed chrome of a titled, bordered group box (all values are Nuklear style
+// defaults): title header (font 16 + 2*4 header.padding + 2*4 header.label_padding
+// = 32) + 4 top group_padding + 2 border = 38px above the first content row.
+const box_chrome: f32 = 38;
+// Breathing room left below the last content row, before the bottom border. Kept
+// identical for every box so no section looks more cramped than another.
+const box_bottom_margin: f32 = 6;
+// Standard widget row height and the window spacing inserted between rows.
+const box_row_h: f32 = 22;
+const box_row_gap: f32 = 4;
+// Nuklear's real per-row advance ends up a fraction of a pixel taller than the
+// nominal row_h + gap (sub-pixel rounding in widget layout), and it accumulates:
+// a 1-row box keeps its full bottom margin, but the 7-row Mixer lost ~4px, leaving
+// its "Defaults" button flush against the border. Reserve a little extra per row
+// so the bottom margin stays consistent no matter how many rows a box has.
+const box_row_round: f32 = 1;
+
+// The scrollable Configure body is a group with a scrollbar, so Nuklear reserves
+// scrollbar_size.y (~10px) at its bottom edge for a horizontal scrollbar it never
+// uses. That strip stays unreachable even at maximum scroll, which clipped the
+// last section's bottom (notably the Mixer's "Defaults" button). A trailing
+// spacer this tall pushes real content clear of the dead strip.
+const body_bottom_slack: f32 = 12;
+
+// Height occupied by `n` standard widget rows, including inter-row spacing and
+// the per-row rounding allowance.
+fn boxRows(n: f32) f32 {
+    return n * (box_row_h + box_row_round) + (n - 1) * box_row_gap;
+}
+
+// Layout cost of one extra, non-standard-height row appended after others: the
+// spacing above it, its own height, and the per-row rounding allowance.
+fn boxRow(h: f32) f32 {
+    return box_row_gap + h + box_row_round;
+}
+
 // A titled, bordered group box used to classify a section inside a tab.
-// Allocates a fixed-height row then begins the group; returns true if visible.
-fn beginBox(ctx: *c.nk_context, id: [*:0]const u8, title: [*:0]const u8, h: f32) bool {
-    c.nk_layout_row_dynamic(ctx, h, 1);
+// `content_h` is the height the widget rows occupy (see boxRows / the explicit
+// sums at the call sites); beginBox adds the header chrome and a uniform bottom
+// margin, then begins the (scrollbar-less) group. Returns true if visible.
+fn beginBox(ctx: *c.nk_context, id: [*:0]const u8, title: [*:0]const u8, content_h: f32) bool {
+    c.nk_layout_row_dynamic(ctx, box_chrome + content_h + box_bottom_margin, 1);
     return c.nk_group_begin_titled(ctx, id, title, box_flags) != 0;
 }
 
@@ -171,6 +209,10 @@ fn drawConfigure(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
                 1 => drawScreenTab(ctx, cfg),
                 else => drawSoundTab(ctx, cfg),
             }
+            // Trailing slack so the final section clears the body's reserved
+            // bottom strip and can scroll fully into view (see body_bottom_slack).
+            c.nk_layout_row_dynamic(ctx, body_bottom_slack, 1);
+            c.nk_spacing(ctx, 1);
             c.nk_group_end(ctx);
         }
 
@@ -193,7 +235,7 @@ fn drawConfigure(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
 // --- Tab 1: System (CPU / Architecture / Memory / Keyboard) ---
 
 fn drawSystemTab(ctx: *c.nk_context, cfg: anytype) void {
-    if (beginBox(ctx, "sys_cpu", "CPU *", 118)) {
+    if (beginBox(ctx, "sys_cpu", "CPU *", boxRows(3))) {
         c.nk_layout_row_dynamic(ctx, 22, 2);
         for (base_clocks, 0..) |clk, i| {
             const was: c_int = if (cfg.baseclock == clk) 1 else 0;
@@ -222,7 +264,7 @@ fn drawSystemTab(ctx: *c.nk_context, cfg: anytype) void {
         c.nk_group_end(ctx);
     }
 
-    if (beginBox(ctx, "sys_arch", "Architecture *", 58)) {
+    if (beginBox(ctx, "sys_arch", "Architecture *", boxRows(1))) {
         c.nk_layout_row_dynamic(ctx, 22, 3);
         const cur_model = modelToIdx(cfg.model);
         for (model_labels, 0..) |lbl, i| {
@@ -233,7 +275,7 @@ fn drawSystemTab(ctx: *c.nk_context, cfg: anytype) void {
         c.nk_group_end(ctx);
     }
 
-    if (beginBox(ctx, "sys_mem", "Memory *", 58)) {
+    if (beginBox(ctx, "sys_mem", "Memory *", boxRows(1))) {
         c.nk_layout_row_dynamic(ctx, 22, 1);
         var mem_idx: usize = 1;
         for (mem_vals, 0..) |v, i| {
@@ -246,7 +288,7 @@ fn drawSystemTab(ctx: *c.nk_context, cfg: anytype) void {
         c.nk_group_end(ctx);
     }
 
-    if (beginBox(ctx, "sys_kbd", "Keyboard", 58)) {
+    if (beginBox(ctx, "sys_kbd", "Keyboard", boxRows(1))) {
         c.nk_layout_row_dynamic(ctx, 22, 2);
         const kbd = cz.usa_get_keyboard();
         if (c.nk_option_label(ctx, "JP 106", if (kbd == 0) 1 else 0) != 0 and kbd != 0)
@@ -256,7 +298,7 @@ fn drawSystemTab(ctx: *c.nk_context, cfg: anytype) void {
         c.nk_group_end(ctx);
     }
 
-    if (beginBox(ctx, "sys_mouse", "Mouse", 58)) {
+    if (beginBox(ctx, "sys_mouse", "Mouse", boxRows(1))) {
         // Applies live; no core reset needed. 100% = per-OS default sensitivity.
         c.nk_layout_row_begin(ctx, c.NK_STATIC, 22, 3);
         c.nk_layout_row_push(ctx, 80);
@@ -277,7 +319,7 @@ fn drawSystemTab(ctx: *c.nk_context, cfg: anytype) void {
 // --- Tab 2: Screen (display toggles / GDC / Graphic Charger / Skipline / Mono) ---
 
 fn drawScreenTab(ctx: *c.nk_context, cfg: anytype) void {
-    if (beginBox(ctx, "scr_disp", "Display", 108)) {
+    if (beginBox(ctx, "scr_disp", "Display", boxRows(3))) {
         c.nk_layout_row_dynamic(ctx, 22, 1);
         var raster_v: c_int = if (cfg.RASTER != 0) 1 else 0;
         _ = c.nk_checkbox_label(ctx, "Real Palettes", &raster_v);
@@ -301,7 +343,7 @@ fn drawScreenTab(ctx: *c.nk_context, cfg: anytype) void {
         c.nk_group_end(ctx);
     }
 
-    if (beginBox(ctx, "scr_gdc", "GDC", 58)) {
+    if (beginBox(ctx, "scr_gdc", "GDC", boxRows(1))) {
         const prev_gdc = cfg.uPD72020;
         c.nk_layout_row_dynamic(ctx, 22, 2);
         const was0: c_int = if (cfg.uPD72020 == 0) 1 else 0;
@@ -317,7 +359,7 @@ fn drawScreenTab(ctx: *c.nk_context, cfg: anytype) void {
         c.nk_group_end(ctx);
     }
 
-    if (beginBox(ctx, "scr_grcg", "Graphic Charger", 58)) {
+    if (beginBox(ctx, "scr_grcg", "Graphic Charger", boxRows(1))) {
         const prev_grcg = cfg.grcg;
         const prev_color16 = cfg.color16;
         c.nk_layout_row_dynamic(ctx, 22, 4);
@@ -343,7 +385,11 @@ fn drawScreenTab(ctx: *c.nk_context, cfg: anytype) void {
         c.nk_group_end(ctx);
     }
 
-    if (beginBox(ctx, "scr_skip", "Skipline / Monochrome", 116)) {
+    // Skipline checkbox + Brightness slider + Monochrome checkbox. The Brightness
+    // row is always drawn (keeping the box a constant 3 rows) but greyed out and
+    // non-interactive while Skipline is off, so toggling never resizes the box or
+    // leaves a gap — only the slider's enabled state changes.
+    if (beginBox(ctx, "scr_skip", "Skipline / Monochrome", boxRows(3))) {
         const prev_skipline = cfg.skipline;
         const prev_skiplight = cfg.skiplight;
         c.nk_layout_row_dynamic(ctx, 22, 1);
@@ -351,16 +397,18 @@ fn drawScreenTab(ctx: *c.nk_context, cfg: anytype) void {
         _ = c.nk_checkbox_label(ctx, "Skipline", &skipline_v);
         cfg.skipline = @intCast(@as(u32, @intCast(skipline_v)));
 
-        if (cfg.skipline != 0) {
-            c.nk_layout_row_begin(ctx, c.NK_STATIC, 22, 2);
-            c.nk_layout_row_push(ctx, 70);
-            c.nk_label(ctx, "Brightness:", c.NK_TEXT_LEFT);
-            c.nk_layout_row_push(ctx, 180);
-            var sl_f: f32 = @floatFromInt(cfg.skiplight);
-            sl_f = c.nk_slide_float(ctx, 0, sl_f, 255, 1);
-            cfg.skiplight = @intFromFloat(sl_f);
-            c.nk_layout_row_end(ctx);
-        }
+        const skip_on = cfg.skipline != 0;
+        if (!skip_on) c.nk_widget_disable_begin(ctx);
+        c.nk_layout_row_begin(ctx, c.NK_STATIC, 22, 2);
+        c.nk_layout_row_push(ctx, 70);
+        c.nk_label(ctx, "Brightness:", c.NK_TEXT_LEFT);
+        c.nk_layout_row_push(ctx, 180);
+        var sl_f: f32 = @floatFromInt(cfg.skiplight);
+        sl_f = c.nk_slide_float(ctx, 0, sl_f, 255, 1);
+        if (skip_on) cfg.skiplight = @intFromFloat(sl_f);
+        c.nk_layout_row_end(ctx);
+        if (!skip_on) c.nk_widget_disable_end(ctx);
+
         if (cfg.skipline != prev_skipline or cfg.skiplight != prev_skiplight) {
             cz.usa_pal_makeskiptable();
             cz.scrndraw_redraw();
@@ -382,7 +430,7 @@ fn drawScreenTab(ctx: *c.nk_context, cfg: anytype) void {
 // --- Tab 3: Sound (board / buffer / beep / seek / mixer) ---
 
 fn drawSoundTab(ctx: *c.nk_context, cfg: anytype) void {
-    if (beginBox(ctx, "snd_dev", "Sound Device *", 84)) {
+    if (beginBox(ctx, "snd_dev", "Sound Device *", boxRows(2))) {
         c.nk_layout_row_begin(ctx, c.NK_STATIC, 22, 2);
         c.nk_layout_row_push(ctx, 95);
         c.nk_label(ctx, "Sound Board:", c.NK_TEXT_LEFT);
@@ -411,7 +459,7 @@ fn drawSoundTab(ctx: *c.nk_context, cfg: anytype) void {
         c.nk_group_end(ctx);
     }
 
-    if (beginBox(ctx, "snd_beep", "Beep & Seek", 84)) {
+    if (beginBox(ctx, "snd_beep", "Beep & Seek", boxRows(2))) {
         c.nk_layout_row_begin(ctx, c.NK_STATIC, 22, 2);
         c.nk_layout_row_push(ctx, 95);
         c.nk_label(ctx, "Beep volume:", c.NK_TEXT_LEFT);
@@ -429,7 +477,8 @@ fn drawSoundTab(ctx: *c.nk_context, cfg: anytype) void {
         c.nk_group_end(ctx);
     }
 
-    if (beginBox(ctx, "snd_mix", "Mixer", 234)) {
+    // 5 volume sliders + a 6px spacer row + a 26px "Defaults" button row.
+    if (beginBox(ctx, "snd_mix", "Mixer", boxRows(5) + boxRow(6) + boxRow(30))) {
         const SliderEntry = struct { label: [*:0]const u8, val: *u8 };
         var entries = [_]SliderEntry{
             .{ .label = "FM", .val = &cfg.vol_fm },
