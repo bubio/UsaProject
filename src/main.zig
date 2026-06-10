@@ -513,7 +513,7 @@ pub fn main(proc: std.process.Init.Minimal) void {
         .event_cb = input.handleEvent,
         .width = WIN_WIDTH,
         .height = WIN_HEIGHT,
-        .window_title = "UsaProject",
+        .window_title = "Usa Project",
         .high_dpi = false,
         .icon = makeAppIcon(),
         .logger = .{ .func = sokol.log.func },

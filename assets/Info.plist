@@ -8,6 +8,8 @@
     <string>com.bubio.usaproject</string>
     <key>CFBundleName</key>
     <string>UsaProject</string>
+    <key>CFBundleDisplayName</key>
+    <string>Usa Project</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

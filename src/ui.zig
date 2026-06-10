@@ -701,13 +701,13 @@ fn drawAbout(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
     const bounds = c.nk_rect(dx, dy, dw, dh);
     const flags = c.NK_WINDOW_BORDER | c.NK_WINDOW_TITLE | c.NK_WINDOW_MOVABLE | c.NK_WINDOW_CLOSABLE | c.NK_WINDOW_NO_SCROLLBAR;
 
-    c.nk_window_show(ctx, "About UsaProject", c.NK_SHOWN);
+    c.nk_window_show(ctx, "About Usa Project", c.NK_SHOWN);
     if (ui_dialog.reopen_about) {
         ui_dialog.reopen_about = false;
-        c.nk_window_set_bounds(ctx, "About UsaProject", bounds);
+        c.nk_window_set_bounds(ctx, "About Usa Project", bounds);
     }
 
-    if (c.nk_begin(ctx, "About UsaProject", bounds, flags) != 0) {
+    if (c.nk_begin(ctx, "About Usa Project", bounds, flags) != 0) {
         c.nk_layout_row_begin(ctx, c.NK_STATIC, 80, 2);
 
         if (about_icon_valid) {
@@ -718,7 +718,7 @@ fn drawAbout(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
         c.nk_layout_row_push(ctx, 220);
         if (c.nk_group_begin(ctx, "about_text", c.NK_WINDOW_NO_SCROLLBAR) != 0) {
             c.nk_layout_row_dynamic(ctx, 20, 1);
-            c.nk_label(ctx, "UsaProject", c.NK_TEXT_LEFT);
+            c.nk_label(ctx, "Usa Project", c.NK_TEXT_LEFT);
             c.nk_label(ctx, "Version: 0.2.0", c.NK_TEXT_LEFT);
             c.nk_label(ctx, "Core: NP2kai 0.86", c.NK_TEXT_LEFT);
             c.nk_group_end(ctx);
@@ -727,7 +727,7 @@ fn drawAbout(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
         c.nk_layout_row_end(ctx);
     }
     c.nk_end(ctx);
-    if (c.nk_window_is_hidden(ctx, "About UsaProject") != 0) {
+    if (c.nk_window_is_hidden(ctx, "About Usa Project") != 0) {
         ui_dialog.show_about = false;
     }
 }
