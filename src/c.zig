@@ -15,7 +15,12 @@ pub const c = @cImport({
 // need to mix cz.foo and c.bar).
 pub const pccore_init = c.pccore_init;
 pub const pccore_term = c.pccore_term;
-pub const pccore_reset = c.pccore_reset;
+// Wrapper (src/np2_glue.c) that runs the core reset and then re-applies the
+// Sound Mixer volumes — the core pccore_reset() resets the chips to their
+// power-on volume and never restores np2cfg.vol_*. Route all callers through
+// it so mixer settings survive every reset (incl. the initial one).
+pub extern fn usa_pccore_reset() void;
+pub const pccore_reset = usa_pccore_reset;
 pub extern fn usa_pccore_exec(draw: c_int) void;
 pub inline fn pccore_exec(draw: bool) void {
     usa_pccore_exec(if (draw) 1 else 0);
