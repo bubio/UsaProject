@@ -39,12 +39,15 @@ This project aims to provide a lightweight, modern, and cross-platform PC-98 exp
 
 ## License
 
-This project incorporates several open-source components:
+UsaProject is released under the [MIT License](LICENSE).
+
+It also incorporates several open-source components:
 
 *   **NP2kai**: MIT License (AZO)
 *   **Zig**: MIT License
 *   **sokol**: zlib/libpng License
 *   **nativefiledialog-extended**: Zlib License
+*   **M PLUS 1p**: SIL Open Font License 1.1 — Copyright 2016 The M+ Project Authors ([OFL.txt](assets/fonts/OFL.txt))
 
 ## Build
 
