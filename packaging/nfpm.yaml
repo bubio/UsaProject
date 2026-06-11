@@ -25,6 +25,11 @@ contents:
     dst: /usr/share/applications/usaproject.desktop
   - src: ./assets/AppIcon.png
     dst: /usr/share/pixmaps/usaproject.png
+  # Bundled font's OFL license (M PLUS 1p is embedded in the binary).
+  - src: ./assets/fonts/OFL.txt
+    dst: /usr/share/doc/usaproject/MPLUS1p-OFL.txt
+    file_info:
+      mode: 0644
 
 overrides:
   deb:

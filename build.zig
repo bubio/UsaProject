@@ -273,12 +273,21 @@ pub fn build(b: *std.Build) void {
         cp_icon.step.dependOn(&mkdir.step);
         bundle_step.dependOn(&cp_icon.step);
 
-        // 5. Touch the bundle to refresh Finder cache
+        // 5. Copy the bundled font's OFL license text. M PLUS 1p is embedded in
+        // the binary, so the SIL Open Font License 1.1 + copyright notice must
+        // travel with the distributed .app per the OFL's redistribution terms.
+        const cp_ofl = b.addSystemCommand(&.{ "cp", "assets/fonts/OFL.txt" });
+        cp_ofl.addArg(b.getInstallPath(.prefix, b.fmt("{s}/MPLUS1p-OFL.txt", .{resources_dir})));
+        cp_ofl.step.dependOn(&mkdir.step);
+        bundle_step.dependOn(&cp_ofl.step);
+
+        // 6. Touch the bundle to refresh Finder cache
         const touch = b.addSystemCommand(&.{ "touch" });
         touch.addArg(b.getInstallPath(.prefix, app_name));
         touch.step.dependOn(&cp_exe.step);
         touch.step.dependOn(&cp_plist.step);
         touch.step.dependOn(&cp_icon.step);
+        touch.step.dependOn(&cp_ofl.step);
         bundle_step.dependOn(&touch.step);
     }
 
