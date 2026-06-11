@@ -114,8 +114,13 @@ pub fn scanFolder(allocator: std.mem.Allocator, file_path: [:0]const u8, kind: c
     defer threaded.deinit();
     const io = threaded.io();
 
+    const sep_idx = lastSep(file_path) orelse return Error.ExtractFailed;
     const dir_path = dirname(file_path);
     if (dir_path.len == 0) return Error.ExtractFailed;
+    // Rebuild sibling paths with the SAME separator the input used (backslash or
+    // forward slash) so they round-trip with the original path — `indexOfPath`
+    // compares bytes exactly to find which sibling is the mounted disk.
+    const sep = file_path[sep_idx];
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();
@@ -130,7 +135,7 @@ pub fn scanFolder(allocator: std.mem.Allocator, file_path: [:0]const u8, kind: c
     while (it.next(io) catch return Error.ExtractFailed) |entry| {
         if (entry.kind != .file) continue;
         if (cli.classifyExt(entry.name) != kind) continue;
-        const full = std.fmt.allocPrintSentinel(a, "{s}/{s}", .{ dir_path, entry.name }, 0) catch
+        const full = std.fmt.allocPrintSentinel(a, "{s}{c}{s}", .{ dir_path, sep, entry.name }, 0) catch
             return Error.OutOfMemory;
         try list.append(a, .{ .path = full, .name = "", .kind = kind });
     }
@@ -379,9 +384,19 @@ fn collectImages(io: std.Io, allocator: std.mem.Allocator, cache_dir: []const u8
 
 /// The parent-directory portion of `path` (everything before the last '/'),
 /// or "" if there is none. POSIX-only; the app runs on macOS/Linux.
+// Find the last path separator, recognizing both '/' and '\\' so Windows paths
+// (which arrive with backslashes from the native file dialog) split correctly.
+fn lastSep(path: []const u8) ?usize {
+    var idx: ?usize = null;
+    for (path, 0..) |ch, i| {
+        if (ch == '/' or ch == '\\') idx = i;
+    }
+    return idx;
+}
+
 fn dirname(path: []const u8) []const u8 {
-    const i = std.mem.lastIndexOfScalar(u8, path, '/') orelse return "";
-    return if (i == 0) "/" else path[0..i];
+    const i = lastSep(path) orelse return "";
+    return if (i == 0) path[0..1] else path[0..i];
 }
 
 /// Derive a renderable disk label from a basename (a real on-disk path's
@@ -477,6 +492,9 @@ test "dirname — parent directory of a path" {
     try testing.expectEqualStrings("/a/b", dirname("/a/b/c.fdi"));
     try testing.expectEqualStrings("/", dirname("/c.fdi"));
     try testing.expectEqualStrings("", dirname("c.fdi"));
+    // Windows paths arrive with backslashes from the native file dialog.
+    try testing.expectEqualStrings("C:\\games", dirname("C:\\games\\disk.fdi"));
+    try testing.expectEqualStrings("\\", dirname("\\disk.fdi"));
 }
 
 test "displayName — UTF-8 kept, blank stem falls back to Disk N" {
