@@ -62,6 +62,10 @@ fn fbViewport(win_w: u32, win_h: u32) Viewport {
 
 const State = struct {
     pipeline: sg.Pipeline = .{},
+    // Second pipeline whose fragment shader applies the HSV-smooth filter on the
+    // GPU; selected at draw time when ui.display_hsv is on. Keeping the filter in
+    // a shader means the NP2kai core needs no video-filter changes.
+    pipeline_hsv: sg.Pipeline = .{},
     bindings: sg.Bindings = .{},
     pass_action: sg.PassAction = .{},
     image: sg.Image = .{},
@@ -82,7 +86,11 @@ var last_emu_ns: i128 = 0;
 var skip_counter: u32 = 0;
 const nowait_frames_per_tick: u32 = 16;
 var draw_fps: f32 = 0.0;
-var last_draw_ns: i128 = 0;
+// Windowed FPS: average presented-frame count over a ~0.5s wall-clock window.
+// Replaces an instantaneous 1/Δt readout, which swung wildly (into the hundreds)
+// whenever the host frame() rate beat against the ~60Hz draw gate.
+var fps_draw_count: u32 = 0;
+var fps_window_start_ns: i128 = 0;
 
 // 音声バッファ（Zig側で変換用に使用）
 var audio_buffer: [4096 * 2]f32 = undefined;
@@ -135,13 +143,11 @@ export fn init() void {
         // because the reset's diskdrv_hddbind() binds drives from the config.
         configureHdds(expanded_disks);
     }
-    // Always load the HSV-smooth profile into np2cfg before pccore_init() reads
-    // it into the filter manager, so the Screen menu can toggle it live. The
-    // --video-filter flag only decides whether it starts on. UsaProject never
-    // reads np2kai's .cfg, so this is the only path that configures it.
-    const vf_on = if (parsed_opts) |o| o.video_filter else false;
-    cz.usa_setup_video_filter(if (vf_on) 1 else 0);
-    ui.display_hsv = vf_on;
+    // The HSV-smooth filter now lives in the app layer as a GPU fragment-shader
+    // pass (state.pipeline_hsv), so the NP2kai core filter stays disabled and
+    // the core source is left unmodified. The --video-filter flag only decides
+    // whether the shader filter starts on; the Screen menu toggles it live.
+    ui.display_hsv = if (parsed_opts) |o| o.video_filter else false;
     cz.pccore_init();
     cz.pccore_reset();
     if (parsed_opts) |opts| {
@@ -195,16 +201,21 @@ export fn init() void {
     state.bindings.views[0] = state.view;
     state.bindings.samplers[0] = state.sampler;
 
+    const blit_attrs = init: {
+        var attrs: [16]sg.VertexAttrState = @splat(.{});
+        attrs[0].format = .FLOAT3;
+        attrs[1].format = .FLOAT2;
+        break :init attrs;
+    };
     state.pipeline = sg.makePipeline(.{
-        .shader = makeBlitShader(),
-        .layout = .{
-            .attrs = init: {
-                var attrs: [16]sg.VertexAttrState = @splat(.{});
-                attrs[0].format = .FLOAT3;
-                attrs[1].format = .FLOAT2;
-                break :init attrs;
-            },
-        },
+        .shader = makeBlitShader(platform.os.shader_fs_source),
+        .layout = .{ .attrs = blit_attrs },
+        .index_type = .UINT16,
+    });
+    // HSV-smooth variant: same geometry/layout, filtering fragment shader.
+    state.pipeline_hsv = sg.makePipeline(.{
+        .shader = makeBlitShader(platform.os.shader_fs_hsv_source),
+        .layout = .{ .attrs = blit_attrs },
         .index_type = .UINT16,
     });
 
@@ -321,14 +332,14 @@ fn setupDataDir() void {
     config.setDataDir(dir);
 }
 
-fn makeBlitShader() sg.Shader {
+fn makeBlitShader(fs_source: [*:0]const u8) sg.Shader {
     return sg.makeShader(.{
         .vertex_func = .{
             .source = platform.os.shader_vs_source,
         },
         .fragment_func = .{
             .entry = platform.os.shader_entry,
-            .source = platform.os.shader_fs_source,
+            .source = fs_source,
         },
         .attrs = init: {
             var a: [16]sg.ShaderVertexAttr = @splat(.{});
@@ -390,26 +401,42 @@ export fn frame() void {
         const draw_skip = cz.usa_get_draw_skip();
         var i: u32 = 0;
         while (i < frames) : (i += 1) {
-            const should_draw = blk: {
-                if (draw_skip <= 1) break :blk true;
+            // Only the final emulated frame of this host frame is ever uploaded
+            // to the GPU (a single updateImage() after the loop), so only it
+            // needs the expensive scrndraw_draw() + HSV filter pass. Intermediate
+            // frames just advance the CPU with draw=false; rendering them — and
+            // especially running the per-pixel HSV-smooth filter on them — is
+            // pure waste (16x under No-Wait, up to 4x under catch-up) that
+            // collapses the frame rate to single digits when the filter is on.
+            const is_last = (i + 1 == frames);
+            var should_draw = is_last;
+            // draw_skip is the user's frame-skip setting; apply it to the one
+            // presented frame per host tick so heavy load can drop whole frames.
+            if (is_last and draw_skip > 1) {
                 skip_counter += 1;
                 if (skip_counter >= draw_skip) {
                     skip_counter = 0;
-                    break :blk true;
+                } else {
+                    should_draw = false;
                 }
-                break :blk false;
-            };
+            }
             cz.pccore_exec(should_draw);
             cz.sound_sync();
             if (should_draw) {
                 cz.scrndraw_redraw();
-                const draw_dt_ns = now - last_draw_ns;
-                if (draw_dt_ns > 0) {
-                    draw_fps = @floatCast(1_000_000_000.0 / @as(f64, @floatFromInt(draw_dt_ns)));
-                }
-                last_draw_ns = now;
+                fps_draw_count += 1;
             }
         }
+    }
+
+    // Publish smoothed FPS once per ~0.5s window.
+    if (fps_window_start_ns == 0) fps_window_start_ns = now;
+    const win_ns = now - fps_window_start_ns;
+    if (win_ns >= 500_000_000) {
+        const win_s = @as(f64, @floatFromInt(win_ns)) / 1_000_000_000.0;
+        draw_fps = @floatCast(@as(f64, @floatFromInt(fps_draw_count)) / win_s);
+        fps_draw_count = 0;
+        fps_window_start_ns = now;
     }
 
     pixel.rgb565BufferToRgba8(&fb_rgba, cz.pc98_framebuffer[0 .. FB_WIDTH * FB_HEIGHT]);
@@ -446,7 +473,7 @@ export fn frame() void {
     });
 
     sg.beginPass(.{ .action = state.pass_action, .swapchain = sglue.swapchain() });
-    sg.applyPipeline(state.pipeline);
+    sg.applyPipeline(if (ui.display_hsv) state.pipeline_hsv else state.pipeline);
     // Live scaling-filter choice from the Screen menu (nearest vs linear).
     state.bindings.samplers[0] = if (ui.display_scale_linear) state.sampler_linear else state.sampler;
     sg.applyBindings(state.bindings);
