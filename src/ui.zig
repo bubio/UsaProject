@@ -405,14 +405,11 @@ fn menuScreen(ctx: *c.nk_context) void {
         var linear_v: c_int = if (display_scale_linear) 1 else 0;
         _ = c.nk_checkbox_label(ctx, "Smooth Scaling", &linear_v);
         display_scale_linear = linear_v != 0;
-        // HSV Filter — NP2kai HSV-smooth on the emulated output; toggled live.
+        // HSV Filter — app-layer HSV-smooth, applied as a GPU shader pass in
+        // main.frame() when display_hsv is set. No core-side call needed.
         var hsv_v: c_int = if (display_hsv) 1 else 0;
         _ = c.nk_checkbox_label(ctx, "HSV Filter", &hsv_v);
-        const hsv_new = hsv_v != 0;
-        if (hsv_new != display_hsv) {
-            display_hsv = hsv_new;
-            cz.usa_set_video_filter(if (hsv_new) 1 else 0);
-        }
+        display_hsv = hsv_v != 0;
         c.nk_menu_end(ctx);
     }
 }

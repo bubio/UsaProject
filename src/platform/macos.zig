@@ -3,6 +3,7 @@ const sapp = @import("sokol").app;
 
 pub const shader_vs_source = @embedFile("shaders/blit.vs.metal");
 pub const shader_fs_source = @embedFile("shaders/blit.fs.metal");
+pub const shader_fs_hsv_source = @embedFile("shaders/blit_hsv.fs.metal");
 pub const shader_entry = "_main";
 
 pub const data_dir_template = "{s}/Library/Application Support/{s}";

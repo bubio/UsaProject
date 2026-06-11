@@ -3,6 +3,7 @@ const sapp = @import("sokol").app;
 
 pub const shader_vs_source = @embedFile("shaders/blit.vs.hlsl");
 pub const shader_fs_source = @embedFile("shaders/blit.fs.hlsl");
+pub const shader_fs_hsv_source = @embedFile("shaders/blit_hsv.fs.hlsl");
 pub const shader_entry = "main";
 
 // Backslashes (not forward slashes): the path is handed to `explorer` to
