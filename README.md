@@ -20,7 +20,8 @@ A PC-98 emulator frontend rebuilt with **Zig** and **sokol**, powered by the **N
 This project aims to provide a lightweight, modern, and cross-platform PC-98 experience.
 
 <p align="center">
-  <img src="docs/Screenshot1.png" alt="UsaProject App ScreenShot">
+  <img src="docs/Screenshot1.png" alt="Titan Quest on Usa Project running on macOS Tahoe">
+  <img src="docs/Screenshot2.png" alt="英雄伝説III 白き魔女 on Usa Project running on Ubuntu 24.04">
 </p>
 
 ## Features
