@@ -74,7 +74,7 @@ jobs:
           zip -r UsaProject-linux.zip package/
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: UsaProject-linux
           path: UsaProject-linux.zip
