@@ -1,8 +1,36 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const np2_sources = @import("src/np2_sources.zig");
 
 pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
+    const target_query = b.standardTargetOptionsQueryOnly(.{});
+    var resolved_target_query = target_query;
+
+    // Pin minimum OS versions to keep release compatibility policy stable.
+    const is_macos_target = if (resolved_target_query.os_tag) |os_tag|
+        os_tag == .macos
+    else
+        builtin.os.tag == .macos;
+    if (resolved_target_query.os_version_min == null) {
+        if (is_macos_target) {
+            resolved_target_query.os_version_min = .{
+                .semver = .{ .major = 13, .minor = 5, .patch = 0 },
+            };
+        } else {
+            const is_windows_target = if (resolved_target_query.os_tag) |os_tag|
+                os_tag == .windows
+            else
+                builtin.os.tag == .windows;
+            if (is_windows_target) {
+                // Windows support policy: require Windows 11 or later.
+                resolved_target_query.os_version_min = .{
+                    .windows = .win11_zn,
+                };
+            }
+        }
+    }
+
+    const target = b.resolveTargetQuery(resolved_target_query);
     const optimize = b.standardOptimizeOption(.{});
 
     const dep_sokol = b.dependency("sokol", .{
