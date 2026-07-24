@@ -43,7 +43,9 @@ pub fn build(b: *std.Build) void {
     const dep_sokol = b.dependency("sokol", .{
         .target = target,
         .optimize = optimize,
-        .dont_link_system_libs = true,
+        // Keep sokol's own system-library linkage on non-macOS platforms.
+        // We only override this on macOS to inject SDKROOT-derived framework paths.
+        .dont_link_system_libs = target.result.os.tag == .macos,
     });
 
     const exe = b.addExecutable(.{
