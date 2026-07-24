@@ -27,6 +27,7 @@ on:
   workflow_dispatch:
 env:
   zig_version: 0.16.0
+  artifact_version: ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.run_number) }}
 
 jobs:
   build-macos:
@@ -73,7 +74,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: UsaProject-macos
+          name: UsaProject-${{ env.artifact_version }}-macos-universal2
           path: zig-out/UsaProject-macos.zip
           if-no-files-found: error
 

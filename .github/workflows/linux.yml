@@ -26,6 +26,9 @@ on:
       - published
   workflow_dispatch:
 
+env:
+  artifact_version: ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.run_number) }}
+
 jobs:
   build-linux:
     name: Linux Build
@@ -76,7 +79,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: UsaProject-linux
+          name: UsaProject-${{ env.artifact_version }}-linux-x86_64
           path: UsaProject-linux.zip
           if-no-files-found: error
 

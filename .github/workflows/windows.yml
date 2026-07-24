@@ -26,6 +26,9 @@ on:
       - published
   workflow_dispatch:
 
+env:
+  artifact_version: ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.run_number) }}
+
 jobs:
   build-windows:
     name: Windows Build
@@ -67,7 +70,7 @@ jobs:
         # release asset below, where it is uploaded as-is.
         uses: actions/upload-artifact@v7
         with:
-          name: UsaProject-windows
+          name: UsaProject-${{ env.artifact_version }}-windows-x86_64
           path: package\*
           if-no-files-found: error
 
