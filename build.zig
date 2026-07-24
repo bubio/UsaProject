@@ -3,8 +3,7 @@ const builtin = @import("builtin");
 const np2_sources = @import("src/np2_sources.zig");
 
 fn addMacFrameworkPathFromSdkRoot(b: *std.Build, module: *std.Build.Module) void {
-    const sdkroot_z = std.c.getenv("SDKROOT") orelse return;
-    const sdkroot = std.mem.span(sdkroot_z);
+    const sdkroot = b.graph.environ_map.get("SDKROOT") orelse return;
     module.addSystemFrameworkPath(.{
         .cwd_relative = b.fmt("{s}/System/Library/Frameworks", .{sdkroot}),
     });
