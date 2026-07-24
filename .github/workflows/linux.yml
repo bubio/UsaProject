@@ -26,9 +26,6 @@ on:
       - published
   workflow_dispatch:
 
-env:
-  artifact_version: ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.run_number) }}
-
 jobs:
   build-linux:
     name: Linux Build
@@ -58,6 +55,14 @@ jobs:
         with:
           version: 0.16.0
 
+      - name: Resolve artifact version
+        run: |
+          VERSION="$(grep -m1 '\.version = "' build.zig.zon | sed -E 's/.*"([^"]+)".*/\1/')"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          echo "ARTIFACT_VERSION=${VERSION}" >> "$GITHUB_ENV"
+
       - name: Build
         # Pin the x86_64-v2 microarchitecture level (2009+ CPUs) so the released
         # binary stays portable. The native target would bake in host-only
@@ -74,13 +79,13 @@ jobs:
           cp zig-out/bin/UsaProject package/
           # Ship the bundled font's OFL license (M PLUS 1p is embedded in the binary).
           cp assets/fonts/OFL.txt package/MPLUS1p-OFL.txt
-          zip -r UsaProject-linux.zip package/
+          zip -r UsaProject-${ARTIFACT_VERSION}-linux-x86_64.zip package/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: UsaProject-${{ env.artifact_version }}-linux-x86_64
-          path: UsaProject-linux.zip
+          name: UsaProject-${{ env.ARTIFACT_VERSION }}-linux-x86_64
+          path: UsaProject-${{ env.ARTIFACT_VERSION }}-linux-x86_64.zip
           if-no-files-found: error
 
       - name: Install nfpm
@@ -135,7 +140,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           files: |
-            UsaProject-linux.zip
+            UsaProject-${{ env.ARTIFACT_VERSION }}-linux-x86_64.zip
             dist/*.deb
             dist/*.rpm
             dist/*.AppImage

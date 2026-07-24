@@ -27,7 +27,6 @@ on:
   workflow_dispatch:
 env:
   zig_version: 0.16.0
-  artifact_version: ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.run_number) }}
 
 jobs:
   build-macos:
@@ -46,6 +45,14 @@ jobs:
         uses: mlugg/setup-zig@v2
         with:
           version: ${{ env.zig_version }}
+
+      - name: Resolve artifact version
+        run: |
+          VERSION="$(grep -m1 '\.version = "' build.zig.zon | sed -E 's/.*"([^"]+)".*/\1/')"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          echo "ARTIFACT_VERSION=${VERSION}" >> "$GITHUB_ENV"
 
       - name: Build universal binary
         # macos-latest runners are arm64. Build the .app natively (arm64), build an
@@ -70,17 +77,17 @@ jobs:
         run: |
           ditto -c -k --sequesterRsrc --keepParent \
             zig-out/UsaProject.app \
-            zig-out/UsaProject-macos.zip
+            zig-out/UsaProject-${ARTIFACT_VERSION}-macOS-universal.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: UsaProject-${{ env.artifact_version }}-macos-universal2
-          path: zig-out/UsaProject-macos.zip
+          name: UsaProject-${{ env.ARTIFACT_VERSION }}-macOS-universal
+          path: zig-out/UsaProject-${{ env.ARTIFACT_VERSION }}-macOS-universal.zip
           if-no-files-found: error
 
       - name: Upload release asset
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v3
         with:
-          files: zig-out/UsaProject-macos.zip
+          files: zig-out/UsaProject-${{ env.ARTIFACT_VERSION }}-macOS-universal.zip

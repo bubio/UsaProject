@@ -26,9 +26,6 @@ on:
       - published
   workflow_dispatch:
 
-env:
-  artifact_version: ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.run_number) }}
-
 jobs:
   build-windows:
     name: Windows Build
@@ -47,6 +44,16 @@ jobs:
         with:
           version: 0.16.0
 
+      - name: Resolve artifact version
+        shell: pwsh
+        run: |
+          $manifest = Get-Content build.zig.zon -Raw
+          $version = ([regex]::Match($manifest, '\.version = "([^"]+)"')).Groups[1].Value
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $version = "${{ github.ref_name }}" -replace '^v', ''
+          }
+          "ARTIFACT_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Build
         # Pin the x86_64-v3 microarchitecture level (2013+ CPUs: AVX2/BMI2/FMA) so
         # the released binary is portable across modern CPUs. v4 is intentionally
@@ -61,7 +68,7 @@ jobs:
           copy zig-out\bin\UsaProject.exe package\
           # Ship the bundled font's OFL license (M PLUS 1p is embedded in the binary).
           copy assets\fonts\OFL.txt package\MPLUS1p-OFL.txt
-          Compress-Archive -Path package\* -DestinationPath UsaProject-windows.zip
+          Compress-Archive -Path package\* -DestinationPath UsaProject-$env:ARTIFACT_VERSION-windows-x86_64.zip
 
       - name: Upload artifact
         # Upload the raw package contents, NOT the .zip. upload-artifact always
@@ -70,7 +77,7 @@ jobs:
         # release asset below, where it is uploaded as-is.
         uses: actions/upload-artifact@v7
         with:
-          name: UsaProject-${{ env.artifact_version }}-windows-x86_64
+          name: UsaProject-${{ env.ARTIFACT_VERSION }}-windows-x86_64
           path: package\*
           if-no-files-found: error
 
@@ -78,4 +85,4 @@ jobs:
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v3
         with:
-          files: UsaProject-windows.zip
+          files: UsaProject-${{ env.ARTIFACT_VERSION }}-windows-x86_64.zip
