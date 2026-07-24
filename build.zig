@@ -2,6 +2,14 @@ const std = @import("std");
 const builtin = @import("builtin");
 const np2_sources = @import("src/np2_sources.zig");
 
+fn addMacFrameworkPathFromSdkRoot(b: *std.Build, module: *std.Build.Module) void {
+    const sdkroot_z = std.c.getenv("SDKROOT") orelse return;
+    const sdkroot = std.mem.span(sdkroot_z);
+    module.addSystemFrameworkPath(.{
+        .cwd_relative = b.fmt("{s}/System/Library/Frameworks", .{sdkroot}),
+    });
+}
+
 pub fn build(b: *std.Build) void {
     const target_query = b.standardTargetOptionsQueryOnly(.{});
     var resolved_target_query = target_query;
@@ -36,6 +44,7 @@ pub fn build(b: *std.Build) void {
     const dep_sokol = b.dependency("sokol", .{
         .target = target,
         .optimize = optimize,
+        .dont_link_system_libs = true,
     });
 
     const exe = b.addExecutable(.{
@@ -62,11 +71,15 @@ pub fn build(b: *std.Build) void {
     const nfd_cflags = &[_][]const u8{ "-fno-sanitize=all" };
     switch (target.result.os.tag) {
         .macos => {
+            addMacFrameworkPathFromSdkRoot(b, exe.root_module);
             exe.root_module.addCSourceFile(.{
                 .file = dep_nfd.path("src/nfd_cocoa.m"),
                 .flags = nfd_cflags,
             });
             exe.root_module.linkFramework("AppKit", .{});
+            exe.root_module.linkFramework("QuartzCore", .{});
+            exe.root_module.linkFramework("AudioToolbox", .{});
+            exe.root_module.linkFramework("Metal", .{});
             exe.root_module.linkFramework("UniformTypeIdentifiers", .{});
         },
         .windows => {
