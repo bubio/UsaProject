@@ -102,6 +102,34 @@ jobs:
           nfpm package -f packaging/nfpm.yaml -p rpm -t dist
           ls -la dist
 
+      - name: Build AppImage
+        if: github.event_name == 'release'
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          # Strip the leading "v" from the tag (e.g. v0.2.0 -> 0.2.0).
+          export VERSION="${VERSION#v}"
+          sudo apt-get update
+          sudo apt-get install -y squashfs-tools
+          curl -fsSL https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -o /tmp/appimagetool.AppImage
+          chmod +x /tmp/appimagetool.AppImage
+
+          mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/pixmaps dist
+          cp zig-out/bin/UsaProject AppDir/usr/bin/usaproject
+          cp packaging/usaproject.desktop AppDir/usr/share/applications/usaproject.desktop
+          cp assets/AppIcon.png AppDir/usr/share/pixmaps/usaproject.png
+          cp assets/AppIcon.png AppDir/usaproject.png
+          cat > AppDir/AppRun <<'EOF'
+          #!/bin/sh
+          SELF="$(readlink -f "$0")"
+          HERE="${SELF%/*}"
+          exec "$HERE/usr/bin/usaproject" "$@"
+          EOF
+          chmod +x AppDir/AppRun
+
+          ARCH=x86_64 /tmp/appimagetool.AppImage AppDir "dist/UsaProject-${VERSION}-linux-x86_64.AppImage"
+          ls -la dist
+
       - name: Upload release assets
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v3
@@ -110,3 +138,4 @@ jobs:
             UsaProject-linux.zip
             dist/*.deb
             dist/*.rpm
+            dist/*.AppImage
