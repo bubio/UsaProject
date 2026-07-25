@@ -1,4 +1,4 @@
-//! Archive (zip) support for disk images.
+//! Archive (zip) and playlist (m3u/m3u8) support for disk images.
 //!
 //! NP2kai's core has no compressed-archive support (see
 //! docs/np2kai-archive-support.md). Per AGENTS.md's portability/maintenance
@@ -13,6 +13,12 @@
 //!
 //! Only zip (store/deflate) is handled, via std.zip. Encrypted/multi-disk zips
 //! and other formats (lzh, gz) are unsupported and surface as errors.
+//!
+//! m3u/m3u8 playlists are handled the same way from the caller's view (they
+//! surface as `.archive`, so extractImages returns an ImageSet the CLI, GUI,
+//! drag-drop, and swap modal all consume identically), but need no cache: the
+//! images they list already exist on disk. Each line is a path to a disk image,
+//! resolved against the playlist's own directory, and mounted in listing order.
 
 const std = @import("std");
 const cli = @import("cli.zig");
@@ -70,6 +76,9 @@ pub fn extractImages(allocator: std.mem.Allocator, archive_path: [:0]const u8) E
     defer threaded.deinit();
     const io = threaded.io();
 
+    // A playlist references images already on disk — no cache/extract needed.
+    if (isPlaylist(archive_path)) return extractPlaylist(io, allocator, archive_path);
+
     // Cache root: <datadir>/cache
     const data_dir = platform.resolveDataDir(allocator) catch return Error.ExtractFailed;
     defer allocator.free(data_dir);
@@ -103,6 +112,116 @@ pub fn extractImages(allocator: std.mem.Allocator, archive_path: [:0]const u8) E
     const a = set.arena.allocator();
     set.source = displaySource(a, basename(archive_path), "Archive") catch return Error.OutOfMemory;
     return set;
+}
+
+/// True if `path` ends in an m3u/m3u8 playlist extension (case-insensitive).
+fn isPlaylist(path: []const u8) bool {
+    const dot = std.mem.lastIndexOfScalar(u8, path, '.') orelse return false;
+    const ext_raw = path[dot..];
+    var buf: [8]u8 = undefined;
+    if (ext_raw.len > buf.len) return false;
+    const ext = std.ascii.lowerString(buf[0..ext_raw.len], ext_raw);
+    return std.mem.eql(u8, ext, ".m3u") or std.mem.eql(u8, ext, ".m3u8");
+}
+
+/// An image referenced by a playlist: `path` is a resolved (absolute or
+/// dir-relative-joined) UTF-8 path; `kind` is its extension class.
+const PlaylistEntry = struct { path: []const u8, kind: cli.DiskKind };
+
+/// Build an ImageSet from an m3u/m3u8 playlist. The listed images already exist
+/// on disk, so — unlike a zip — nothing is hashed, cached, or extracted: each
+/// entry is resolved to a real path and mounted directly, in listing order
+/// (the playlist's order is the user's intent; we do NOT re-sort it the way the
+/// order-less zip path does). Entries whose files are missing are skipped with a
+/// warning; if none remain the caller sees NoDiskImageInArchive.
+fn extractPlaylist(io: std.Io, allocator: std.mem.Allocator, m3u_path: [:0]const u8) Error!ImageSet {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    errdefer arena.deinit();
+    const a = arena.allocator();
+
+    var file = std.Io.Dir.cwd().openFile(io, m3u_path, .{}) catch |e| {
+        std.debug.print("!! could not open playlist '{s}': {s}\n", .{ m3u_path, @errorName(e) });
+        return Error.ExtractFailed;
+    };
+    defer file.close(io);
+    var rbuf: [4096]u8 = undefined;
+    var fr = file.reader(io, &rbuf);
+    // Playlists are tiny; cap the read so a mis-typed path can't slurp a huge file.
+    const content = fr.interface.allocRemaining(a, .limited(1 << 20)) catch |e| {
+        std.debug.print("!! could not read playlist '{s}': {s}\n", .{ m3u_path, @errorName(e) });
+        return Error.ExtractFailed;
+    };
+
+    const entries = parsePlaylist(a, content, dirname(m3u_path)) catch return Error.OutOfMemory;
+
+    const cwd = std.Io.Dir.cwd();
+    var list: std.ArrayList(Image) = .empty;
+    for (entries.items) |e| {
+        const p = a.dupeZ(u8, e.path) catch return Error.OutOfMemory;
+        cwd.access(io, p, .{}) catch {
+            std.debug.print("!! playlist entry not found, skipping: {s}\n", .{p});
+            continue;
+        };
+        list.append(a, .{ .path = p, .name = "", .kind = e.kind }) catch return Error.OutOfMemory;
+    }
+
+    if (list.items.len == 0) return Error.NoDiskImageInArchive;
+
+    const images = list.toOwnedSlice(a) catch return Error.OutOfMemory;
+    // Listing order is preserved (no sort); `name` is the real basename, or a
+    // "Disk N" fallback numbered in that same order.
+    for (images, 0..) |*img, i| {
+        img.name = displayName(a, basename(img.path), i) catch return Error.OutOfMemory;
+    }
+    const source = displaySource(a, basename(m3u_path), "Playlist") catch return Error.OutOfMemory;
+    return .{ .images = images, .source = source, .arena = arena };
+}
+
+/// Pure parse: playlist `content` bytes → resolved FDD/HDD entries (allocated
+/// from `a`). A leading UTF-8 BOM, blank lines, and '#'-comment lines (incl.
+/// extended-m3u `#EXTM3U`/`#EXTINF` directives) are ignored. Each remaining line
+/// is trimmed, decoded (CP932 `.m3u` → UTF-8, or UTF-8 `.m3u8` passed through),
+/// and classified by extension; non-image, unknown, and nested-archive entries
+/// are dropped. Relative paths are joined onto `dir`; absolute paths are used
+/// as-is. Listing order is preserved.
+fn parsePlaylist(a: std.mem.Allocator, content: []const u8, dir: []const u8) !std.ArrayList(PlaylistEntry) {
+    var list: std.ArrayList(PlaylistEntry) = .empty;
+    var dec_buf: [std.fs.max_path_bytes]u8 = undefined;
+
+    var it = std.mem.tokenizeAny(u8, stripBom(content), "\r\n");
+    while (it.next()) |raw_line| {
+        const line = std.mem.trim(u8, raw_line, " \t");
+        if (line.len == 0 or line[0] == '#') continue;
+        const rel = stripDotSlash(decodeName(&dec_buf, line));
+        const kind = cli.classifyExt(rel) orelse continue;
+        if (kind == .archive) continue; // ignore nested archives/playlists
+        const full = if (isAbsolutePath(rel) or dir.len == 0)
+            try a.dupe(u8, rel)
+        else
+            try std.fmt.allocPrint(a, "{s}/{s}", .{ dir, rel });
+        try list.append(a, .{ .path = full, .kind = kind });
+    }
+    return list;
+}
+
+/// Drop a leading UTF-8 byte-order mark (common in .m3u8 files).
+fn stripBom(content: []const u8) []const u8 {
+    return if (std.mem.startsWith(u8, content, "\xEF\xBB\xBF")) content[3..] else content;
+}
+
+/// Drop a leading "./" or ".\" from a relative entry so the joined path stays clean.
+fn stripDotSlash(entry: []const u8) []const u8 {
+    if (std.mem.startsWith(u8, entry, "./") or std.mem.startsWith(u8, entry, ".\\"))
+        return entry[2..];
+    return entry;
+}
+
+/// True if `path` is absolute: a POSIX/UNC root ('/' or '\') or a Windows drive
+/// (e.g. "C:\\"). Such entries bypass the playlist-dir join.
+fn isAbsolutePath(path: []const u8) bool {
+    if (path.len == 0) return false;
+    if (path[0] == '/' or path[0] == '\\') return true;
+    return path.len >= 2 and path[1] == ':';
 }
 
 /// Scan the folder containing `file_path` for sibling images of `kind` (so the
@@ -440,12 +559,87 @@ fn lessByPath(_: void, lhs: Image, rhs: Image) bool {
 
 const testing = std.testing;
 
-test "isArchive — zip detected, disk images not" {
+test "isArchive — zip/playlist detected, disk images not" {
     try testing.expect(isArchive("game.zip"));
     try testing.expect(isArchive("GAME.ZIP"));
+    try testing.expect(isArchive("game.m3u"));
+    try testing.expect(isArchive("game.m3u8"));
     try testing.expect(!isArchive("game.d88"));
     try testing.expect(!isArchive("work.hdi"));
     try testing.expect(!isArchive("noext"));
+}
+
+test "isPlaylist — only m3u/m3u8, case-insensitive" {
+    try testing.expect(isPlaylist("Xak2.m3u"));
+    try testing.expect(isPlaylist("XAK2.M3U8"));
+    try testing.expect(!isPlaylist("game.zip"));
+    try testing.expect(!isPlaylist("disk.fdi"));
+    try testing.expect(!isPlaylist("noext"));
+}
+
+test "isAbsolutePath / stripDotSlash / stripBom" {
+    try testing.expect(isAbsolutePath("/a/b.fdi"));
+    try testing.expect(isAbsolutePath("\\a\\b.fdi"));
+    try testing.expect(isAbsolutePath("C:\\g\\d.fdi"));
+    try testing.expect(!isAbsolutePath("a/b.fdi"));
+    try testing.expect(!isAbsolutePath(""));
+    try testing.expectEqualStrings("a.fdi", stripDotSlash("./a.fdi"));
+    try testing.expectEqualStrings("a.fdi", stripDotSlash(".\\a.fdi"));
+    try testing.expectEqualStrings("a.fdi", stripDotSlash("a.fdi"));
+    try testing.expectEqualStrings("x", stripBom("\xEF\xBB\xBFx"));
+    try testing.expectEqualStrings("x", stripBom("x"));
+}
+
+test "parsePlaylist — real Xak2 case: relative entries in listing order" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const content = "XAK2_1.FDD\nXAK2_2.FDD\nXAK2_3.FDD\n";
+    const entries = try parsePlaylist(a, content, "/games/xak2");
+    try testing.expectEqual(@as(usize, 3), entries.items.len);
+    try testing.expectEqualStrings("/games/xak2/XAK2_1.FDD", entries.items[0].path);
+    try testing.expectEqualStrings("/games/xak2/XAK2_2.FDD", entries.items[1].path);
+    try testing.expectEqualStrings("/games/xak2/XAK2_3.FDD", entries.items[2].path);
+    try testing.expectEqual(cli.DiskKind.fdd, entries.items[0].kind);
+}
+
+test "parsePlaylist — comments, blanks, CRLF, BOM, ./ prefix ignored/handled" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const content =
+        "\xEF\xBB\xBF#EXTM3U\r\n" ++
+        "\r\n" ++
+        "#EXTINF:0,Disk 1\r\n" ++
+        "  ./disk1.fdi  \r\n" ++
+        "readme.txt\r\n" ++ // unknown ext dropped
+        "nested.zip\r\n" ++ // nested archive dropped
+        "disk2.hdi\r\n";
+    const entries = try parsePlaylist(a, content, "/g");
+    try testing.expectEqual(@as(usize, 2), entries.items.len);
+    try testing.expectEqualStrings("/g/disk1.fdi", entries.items[0].path);
+    try testing.expectEqual(cli.DiskKind.fdd, entries.items[0].kind);
+    try testing.expectEqualStrings("/g/disk2.hdi", entries.items[1].path);
+    try testing.expectEqual(cli.DiskKind.hdd, entries.items[1].kind);
+}
+
+test "parsePlaylist — absolute entries bypass dir join" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const entries = try parsePlaylist(a, "/abs/disk.fdi\nrel.fdi\n", "/g");
+    try testing.expectEqualStrings("/abs/disk.fdi", entries.items[0].path);
+    try testing.expectEqualStrings("/g/rel.fdi", entries.items[1].path);
+}
+
+test "parsePlaylist — CP932 (.m3u) entry decoded to UTF-8" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // CP932 bytes for 金庫 followed by ".fdi".
+    const entries = try parsePlaylist(a, "\x8b\xe0\x8c\xc9.fdi\n", "/g");
+    try testing.expectEqual(@as(usize, 1), entries.items.len);
+    try testing.expectEqualStrings("/g/金庫.fdi", entries.items[0].path);
 }
 
 test "basename — strips top-level directory" {
