@@ -20,8 +20,15 @@ pub fn build(b: *std.Build) void {
         builtin.os.tag == .macos;
     if (resolved_target_query.os_version_min == null) {
         if (is_macos_target) {
+            // macOS support policy: require macOS 14 Sonoma or later.
+            // sokol_app.h's macOS+Metal backend drives the frame loop with
+            // CADisplayLink (`[NSView displayLinkWithTarget:selector:]`), which
+            // only exists since macOS 14. It is called unconditionally, so on
+            // macOS 13 the app dies with "unrecognized selector" before the
+            // window appears. Keep this in sync with LSMinimumSystemVersion in
+            // assets/Info.plist.
             resolved_target_query.os_version_min = .{
-                .semver = .{ .major = 13, .minor = 5, .patch = 0 },
+                .semver = .{ .major = 14, .minor = 0, .patch = 0 },
             };
         } else {
             const is_windows_target = if (resolved_target_query.os_tag) |os_tag|

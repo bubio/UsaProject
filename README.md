@@ -34,7 +34,7 @@ This project aims to provide a lightweight, modern, and cross-platform PC-98 exp
 
 ## Supported OS
 
-*   **macOS**: macOS 13 Ventura or later (Apple Silicon & Intel)
+*   **macOS**: macOS 14 Sonoma or later (Apple Silicon & Intel)
 *   **Linux**: Modern distributions (Ubuntu 22.04+ recommended)
 *   **Windows**: Windows 11 or later
 
