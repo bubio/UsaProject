@@ -125,6 +125,9 @@ jobs:
           mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/pixmaps dist
           cp zig-out/bin/UsaProject AppDir/usr/bin/usaproject
           cp packaging/usaproject.desktop AppDir/usr/share/applications/usaproject.desktop
+          # appimagetool also requires the .desktop file and its icon in the
+          # AppDir root, otherwise it aborts with "Desktop file not found".
+          cp packaging/usaproject.desktop AppDir/usaproject.desktop
           cp assets/AppIcon.png AppDir/usr/share/pixmaps/usaproject.png
           cp assets/AppIcon.png AppDir/usaproject.png
           cat > AppDir/AppRun <<'EOF'
