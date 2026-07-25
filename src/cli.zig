@@ -51,10 +51,12 @@ pub const hdd_exts = [_][]const u8{
 };
 
 // Archives are unpacked by the Zig app layer (see archive.zig); the contained
-// FDD/HDD images are then mounted. The real disk kind is only known after
-// inspecting the archive, so a positional archive arg is classified as
+// FDD/HDD images are then mounted. m3u/m3u8 playlists list disk images to mount
+// (in listing order) and are resolved the same way — both surface as `.archive`.
+// The real disk kind (and how many drives it fills) is only known after
+// inspecting the archive/playlist, so a positional arg is classified as
 // `.archive` and resolved later.
-pub const archive_exts = [_][]const u8{".zip"};
+pub const archive_exts = [_][]const u8{ ".zip", ".m3u", ".m3u8" };
 
 pub const usage_text =
     \\Usage: UsaProject [options] [DISK_PATH ...]
@@ -71,6 +73,8 @@ pub const usage_text =
     \\  HDD (max 4): .thd .nhd .hdi .vhd .slh .hdn .hdd .cmd
     \\  Archive:     .zip (contained FDD/HDD images are mounted into free
     \\               drives in filename order)
+    \\  Playlist:    .m3u .m3u8 (listed FDD/HDD images are mounted into free
+    \\               drives in listing order; paths resolve against the playlist)
     \\
 ;
 
@@ -297,6 +301,19 @@ test "parse — archive extension case-insensitive" {
     var opts = try parse(testing.allocator, &.{"GAME.ZIP"});
     defer opts.deinit(testing.allocator);
     try testing.expectEqual(DiskKind.archive, opts.disks[0].kind);
+}
+
+test "parse — m3u/m3u8 playlist classifies as archive" {
+    for ([_][]const u8{ "game.m3u", "GAME.M3U", "game.m3u8", "GAME.M3U8" }) |arg| {
+        var opts = try parse(testing.allocator, &.{arg});
+        defer opts.deinit(testing.allocator);
+        try testing.expectEqual(DiskKind.archive, opts.disks[0].kind);
+    }
+}
+
+test "classifyExt — playlist extensions" {
+    try testing.expectEqual(DiskKind.archive, classifyExt("Xak2.m3u").?);
+    try testing.expectEqual(DiskKind.archive, classifyExt("Xak2.m3u8").?);
 }
 
 test "parse — disk paths are sentinel-terminated" {

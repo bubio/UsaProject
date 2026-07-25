@@ -97,11 +97,11 @@ fn extsToSpec(comptime exts: []const []const u8) [:0]const u8 {
 
 const fdd_filters = [_]nfd.Filter{
     .{ .name = "FDD Images", .spec = extsToSpec(&cli.fdd_exts) },
-    .{ .name = "Archives (zip)", .spec = extsToSpec(&cli.archive_exts) },
+    .{ .name = "Archives / Playlists (zip, m3u)", .spec = extsToSpec(&cli.archive_exts) },
 };
 const hdd_filters = [_]nfd.Filter{
     .{ .name = "HDD Images", .spec = extsToSpec(&cli.hdd_exts) },
-    .{ .name = "Archives (zip)", .spec = extsToSpec(&cli.archive_exts) },
+    .{ .name = "Archives / Playlists (zip, m3u)", .spec = extsToSpec(&cli.archive_exts) },
 };
 const state_filters = [_]nfd.Filter{
     .{ .name = "State Files", .spec = "sav" },
