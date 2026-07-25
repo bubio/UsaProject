@@ -103,8 +103,8 @@ jobs:
           # Strip the leading "v" from the tag (e.g. v0.2.0 -> 0.2.0) for nfpm.
           export VERSION="${VERSION#v}"
           mkdir -p dist
-          nfpm package -f packaging/nfpm.yaml -p deb -t dist
-          nfpm package -f packaging/nfpm.yaml -p rpm -t dist
+          nfpm package -f packaging/nfpm.yaml -p deb -t "dist/UsaProject-${VERSION}-linux-x86_64.deb"
+          nfpm package -f packaging/nfpm.yaml -p rpm -t "dist/UsaProject-${VERSION}-linux-x86_64.rpm"
           ls -la dist
 
       - name: Build AppImage

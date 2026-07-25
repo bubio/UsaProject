@@ -33,7 +33,6 @@ contents:
 
 overrides:
   deb:
-    file_name_template: "UsaProject-{{ .Version }}-linux-x86_64"
     depends:
       - libasound2
       - libgl1
@@ -42,7 +41,6 @@ overrides:
       - libxcursor1
       - libdbus-1-3
   rpm:
-    file_name_template: "UsaProject-{{ .Version }}-linux-x86_64"
     depends:
       - alsa-lib
       - mesa-libGL
