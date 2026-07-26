@@ -11,6 +11,15 @@
   <a href="https://github.com/bubio/UsaProject/blob/main/LICENSE">
     <img src="https://img.shields.io/github/license/bubio/UsaProject" alt="License">
   </a>
+  <a href="https://github.com/bubio/UsaProject/actions/workflows/windows.yml">
+    <img src="https://github.com/bubio/UsaProject/actions/workflows/windows.yml/badge.svg" alt="Windows">
+  </a>
+  <a href="https://github.com/bubio/UsaProject/actions/workflows/macos.yml">
+    <img src="https://github.com/bubio/UsaProject/actions/workflows/macos.yml/badge.svg" alt="macOS">
+  </a>
+  <a href="https://github.com/bubio/UsaProject/actions/workflows/linux.yml">
+    <img src="https://github.com/bubio/UsaProject/actions/workflows/linux.yml/badge.svg" alt="Linux">
+  </a>
   <a href="https://github.com/bubio/UsaProject/releases/latest">
     <img src="https://img.shields.io/github/downloads/bubio/UsaProject/total.svg" alt="Downloads">
   </a>
