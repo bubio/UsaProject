@@ -716,7 +716,7 @@ fn drawAbout(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
         if (c.nk_group_begin(ctx, "about_text", c.NK_WINDOW_NO_SCROLLBAR) != 0) {
             c.nk_layout_row_dynamic(ctx, 20, 1);
             c.nk_label(ctx, "Usa Project", c.NK_TEXT_LEFT);
-            c.nk_label(ctx, "Version: 1.0.0", c.NK_TEXT_LEFT);
+            c.nk_label(ctx, "Version: 1.0.1", c.NK_TEXT_LEFT);
             c.nk_label(ctx, "Core: NP2kai 0.86", c.NK_TEXT_LEFT);
             c.nk_group_end(ctx);
         }
