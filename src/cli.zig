@@ -118,23 +118,23 @@ pub fn parse(allocator: std.mem.Allocator, args: []const []const u8) ParseError!
             if (i >= args.len) return error.MissingValue;
             const v = args[i];
             if (v.len > model_max_len) return error.ModelTooLong;
-            opts.model = try allocator.dupeZ(u8, v);
+            opts.model = try allocator.dupeSentinel(u8, v, 0);
             continue;
         }
         if (std.mem.startsWith(u8, a, "--model=")) {
             const v = a["--model=".len..];
             if (v.len > model_max_len) return error.ModelTooLong;
-            opts.model = try allocator.dupeZ(u8, v);
+            opts.model = try allocator.dupeSentinel(u8, v, 0);
             continue;
         }
         if (std.mem.eql(u8, a, "--audio-capture")) {
             i += 1;
             if (i >= args.len) return error.MissingValue;
-            opts.audio_capture = try allocator.dupeZ(u8, args[i]);
+            opts.audio_capture = try allocator.dupeSentinel(u8, args[i], 0);
             continue;
         }
         if (std.mem.startsWith(u8, a, "--audio-capture=")) {
-            opts.audio_capture = try allocator.dupeZ(u8, a["--audio-capture=".len..]);
+            opts.audio_capture = try allocator.dupeSentinel(u8, a["--audio-capture=".len..], 0);
             continue;
         }
         if (std.mem.eql(u8, a, "--audio-autotest")) {
@@ -164,7 +164,7 @@ pub fn parse(allocator: std.mem.Allocator, args: []const []const u8) ParseError!
             // enforced when the contained images are mounted.
             .archive => {},
         }
-        const path = try allocator.dupeZ(u8, a);
+        const path = try allocator.dupeSentinel(u8, a, 0);
         try disks.append(allocator, .{ .kind = kind, .path = path });
     }
 

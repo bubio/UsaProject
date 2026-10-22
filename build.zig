@@ -76,7 +76,7 @@ pub fn build(b: *std.Build) void {
     // build.zig.zon and compile only the backend matching the target OS.
     const dep_nfd = b.dependency("nfd_extended", .{});
     exe.root_module.addIncludePath(dep_nfd.path("src/include"));
-    const nfd_cflags = &[_][]const u8{ "-fno-sanitize=all" };
+    const nfd_cflags = &[_][]const u8{"-fno-sanitize=all"};
     switch (target.result.os.tag) {
         .macos => {
             addMacFrameworkPathFromSdkRoot(b, exe.root_module);
@@ -100,7 +100,7 @@ pub fn build(b: *std.Build) void {
             exe.root_module.linkSystemLibrary("shell32", .{});
             // Link as a GUI app (not console) so launching the .exe does not
             // also spawn a console ("DOS") window alongside the main window.
-            exe.subsystem = .Windows;
+            exe.subsystem = .windows;
             // Embed a manifest that sets the process ACP to UTF-8 so
             // C runtime fopen()/CRT path APIs round-trip non-ASCII paths.
             exe.root_module.addWin32ResourceFile(.{
@@ -281,6 +281,52 @@ pub fn build(b: *std.Build) void {
         .flags = &.{ "-fno-sanitize=all", b.fmt("-D{s}", .{nk_backend_define}) },
     });
 
+    // C headers for the Zig side (Zig 0.17 removed @cImport; each module is
+    // produced by a translate-c step from an entry header in src/cimport/).
+    const np2_c = b.addTranslateC(.{
+        .root_source_file = b.path("src/cimport/np2_c.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+    for (np2_includes) |include| {
+        np2_c.addIncludePath(b.path(include));
+    }
+    for (np2_defines) |define| {
+        np2_c.defineCMacroRaw(define);
+    }
+
+    const nfd_c = b.addTranslateC(.{
+        .root_source_file = b.path("src/cimport/nfd_c.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+    nfd_c.addIncludePath(dep_nfd.path("src/include"));
+
+    const nk_c = b.addTranslateC(.{
+        .root_source_file = b.path("src/cimport/nk_c.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+    nk_c.addIncludePath(b.path("third_party/nuklear"));
+    nk_c.addIncludePath(b.path("third_party/sokol"));
+    nk_c.addIncludePath(dep_sokol.path("src/sokol/c"));
+
+    const stdio_c = b.addTranslateC(.{
+        .root_source_file = b.path("src/cimport/stdio_c.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const c_imports = [_]struct { []const u8, *std.Build.Module }{
+        .{ "np2_c", np2_c.createModule() },
+        .{ "nfd_c", nfd_c.createModule() },
+        .{ "nk_c", nk_c.createModule() },
+        .{ "stdio_c", stdio_c.createModule() },
+    };
+    for (c_imports) |imp| {
+        exe.root_module.addImport(imp[0], imp[1]);
+    }
+
     exe.root_module.link_libc = true;
     exe.root_module.link_libcpp = true;
 
@@ -295,56 +341,31 @@ pub fn build(b: *std.Build) void {
         const macos_dir = b.fmt("{s}/MacOS", .{contents_dir});
         const resources_dir = b.fmt("{s}/Resources", .{contents_dir});
 
-        // 1. Create directory structure
-        const mkdir = b.addSystemCommand(&.{ "mkdir", "-p" });
-        mkdir.addArgs(&.{
-            b.getInstallPath(.prefix, macos_dir),
-            b.getInstallPath(.prefix, resources_dir),
+        // Install steps create the directory structure themselves.
+        // 1. Copy the executable
+        const install_exe = b.addInstallArtifact(exe, .{
+            .dest_dir = .{ .override = .{ .custom = macos_dir } },
         });
-        bundle_step.dependOn(&mkdir.step);
+        bundle_step.dependOn(&install_exe.step);
 
-        // 2. Copy the executable
-        const cp_exe = b.addSystemCommand(&.{ "cp" });
-        cp_exe.addArtifactArg(exe);
-        cp_exe.addArg(b.getInstallPath(.prefix, macos_dir));
-        cp_exe.step.dependOn(&mkdir.step);
-        bundle_step.dependOn(&cp_exe.step);
+        // 2. Copy Info.plist
+        const install_plist = b.addInstallFile(b.path("assets/Info.plist"), b.fmt("{s}/Info.plist", .{contents_dir}));
+        bundle_step.dependOn(&install_plist.step);
 
-        // 3. Copy Info.plist
-        const cp_plist = b.addSystemCommand(&.{ "cp", "assets/Info.plist" });
-        cp_plist.addArg(b.getInstallPath(.prefix, b.fmt("{s}/Info.plist", .{contents_dir})));
-        cp_plist.step.dependOn(&mkdir.step);
-        bundle_step.dependOn(&cp_plist.step);
+        // 3. Copy AppIcon.icns
+        const install_icon = b.addInstallFile(b.path("assets/AppIcon.icns"), b.fmt("{s}/AppIcon.icns", .{resources_dir}));
+        bundle_step.dependOn(&install_icon.step);
 
-        // 4. Copy AppIcon.icns
-        const cp_icon = b.addSystemCommand(&.{ "cp", "assets/AppIcon.icns" });
-        cp_icon.addArg(b.getInstallPath(.prefix, b.fmt("{s}/AppIcon.icns", .{resources_dir})));
-        cp_icon.step.dependOn(&mkdir.step);
-        bundle_step.dependOn(&cp_icon.step);
-
-        // 5. Copy the bundled font's OFL license text. M PLUS 1p is embedded in
+        // 4. Copy the bundled font's OFL license text. M PLUS 1p is embedded in
         // the binary, so the SIL Open Font License 1.1 + copyright notice must
         // travel with the distributed .app per the OFL's redistribution terms.
-        const cp_ofl = b.addSystemCommand(&.{ "cp", "assets/fonts/OFL.txt" });
-        cp_ofl.addArg(b.getInstallPath(.prefix, b.fmt("{s}/MPLUS1p-OFL.txt", .{resources_dir})));
-        cp_ofl.step.dependOn(&mkdir.step);
-        bundle_step.dependOn(&cp_ofl.step);
-
-        // 6. Touch the bundle to refresh Finder cache
-        const touch = b.addSystemCommand(&.{ "touch" });
-        touch.addArg(b.getInstallPath(.prefix, app_name));
-        touch.step.dependOn(&cp_exe.step);
-        touch.step.dependOn(&cp_plist.step);
-        touch.step.dependOn(&cp_icon.step);
-        touch.step.dependOn(&cp_ofl.step);
-        bundle_step.dependOn(&touch.step);
+        const install_ofl = b.addInstallFile(b.path("assets/fonts/OFL.txt"), b.fmt("{s}/MPLUS1p-OFL.txt", .{resources_dir}));
+        bundle_step.dependOn(&install_ofl.step);
     }
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
+    run_cmd.addPassthruArgs();
 
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
@@ -361,6 +382,9 @@ pub fn build(b: *std.Build) void {
         }),
     });
     zig_tests.root_module.addImport("sokol", dep_sokol.module("sokol"));
+    for (c_imports) |imp| {
+        zig_tests.root_module.addImport(imp[0], imp[1]);
+    }
     for (np2_includes) |include| {
         zig_tests.root_module.addIncludePath(b.path(include));
     }
@@ -396,6 +420,9 @@ pub fn build(b: *std.Build) void {
         }),
     });
     path_tests.root_module.addImport("sokol", dep_sokol.module("sokol"));
+    for (c_imports) |imp| {
+        path_tests.root_module.addImport(imp[0], imp[1]);
+    }
     for (np2_includes) |include| {
         path_tests.root_module.addIncludePath(b.path(include));
     }

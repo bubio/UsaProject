@@ -26,7 +26,7 @@ on:
       - published
   workflow_dispatch:
 env:
-  zig_version: 0.16.0
+  zig_version: 0.17.0
 
 jobs:
   build-macos:

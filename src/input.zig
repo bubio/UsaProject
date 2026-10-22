@@ -153,7 +153,7 @@ fn scaledMouseDelta(dx: f32, dy: f32) struct { x: c_int, y: c_int } {
 
 // Track which PC-98 keys are currently held on the host side,
 // so we can re-send them after a reset (which clears keystat).
-var keys_held: [128]bool = [_]bool{false} ** 128;
+var keys_held: [128]bool = @splat(false);
 
 fn resendHeldKeys() void {
     for (0..128) |i| {

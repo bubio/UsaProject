@@ -1,10 +1,8 @@
 const std = @import("std");
 
-const c = @cImport({
-    @cInclude("nfd.h");
-});
+const c = @import("nfd_c");
 
-pub const Error = error{InitFailed, DialogFailed, OutOfMemory};
+pub const Error = error{ InitFailed, DialogFailed, OutOfMemory };
 
 const NFD_ERROR: c_int = 0;
 const NFD_OKAY: c_int = 1;
