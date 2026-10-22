@@ -76,7 +76,7 @@ pub fn build(b: *std.Build) void {
     // build.zig.zon and compile only the backend matching the target OS.
     const dep_nfd = b.dependency("nfd_extended", .{});
     exe.root_module.addIncludePath(dep_nfd.path("src/include"));
-    const nfd_cflags = &[_][]const u8{ "-fno-sanitize=all" };
+    const nfd_cflags = &[_][]const u8{"-fno-sanitize=all"};
     switch (target.result.os.tag) {
         .macos => {
             addMacFrameworkPathFromSdkRoot(b, exe.root_module);

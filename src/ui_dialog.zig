@@ -157,8 +157,9 @@ const model_names = [_][*:0]const u8{ "VM", "VX", "PC286" };
 
 const snd_board_vals = [_]u8{ 0x00, 0x02, 0x04, 0x06, 0x14, 0x08, 0x80 };
 const snd_board_labels = [_][*:0]const u8{
-    "Disable",      "PC-9801-26K",  "PC-9801-86",
-    "26K + 86",     "86 + Chibi-oto", "PC-9801-118", "AMD-98",
+    "Disable",  "PC-9801-26K",    "PC-9801-86",
+    "26K + 86", "86 + Chibi-oto", "PC-9801-118",
+    "AMD-98",
 };
 const mem_vals = [_]u16{ 0, 1, 3, 7, 13, 16, 32, 64, 128 };
 const mem_labels_arr = [_][*:0]const u8{ "640KB", "1.6MB", "3.6MB", "7.6MB", "13.6MB", "16.6MB", "32.6MB", "64.6MB", "128.6MB" };
@@ -255,10 +256,12 @@ fn drawSystemTab(ctx: *c.nk_context, cfg: anytype) void {
         c.nk_layout_row_push(ctx, 180);
         var mul_idx: usize = 0;
         for (multipliers, 0..) |m, i| {
-            if (cfg.multiple == m) { mul_idx = i; break; }
+            if (cfg.multiple == m) {
+                mul_idx = i;
+                break;
+            }
         }
-        const new_mul: usize = @intCast(c.nk_combo(ctx, &multipliers_labels,
-            multipliers_labels.len, @intCast(mul_idx), 22, c.nk_vec2(180, 200)));
+        const new_mul: usize = @intCast(c.nk_combo(ctx, &multipliers_labels, multipliers_labels.len, @intCast(mul_idx), 22, c.nk_vec2(180, 200)));
         cfg.multiple = multipliers[new_mul];
         c.nk_layout_row_end(ctx);
         c.nk_group_end(ctx);
@@ -279,11 +282,16 @@ fn drawSystemTab(ctx: *c.nk_context, cfg: anytype) void {
         c.nk_layout_row_dynamic(ctx, 22, 1);
         var mem_idx: usize = 1;
         for (mem_vals, 0..) |v, i| {
-            if (cfg.EXTMEM == v) { mem_idx = i; break; }
-            if (v > cfg.EXTMEM) { mem_idx = if (i > 0) i - 1 else 0; break; }
+            if (cfg.EXTMEM == v) {
+                mem_idx = i;
+                break;
+            }
+            if (v > cfg.EXTMEM) {
+                mem_idx = if (i > 0) i - 1 else 0;
+                break;
+            }
         }
-        const new_mem: usize = @intCast(c.nk_combo(ctx, &mem_labels_arr,
-            mem_labels_arr.len, @intCast(mem_idx), 22, c.nk_vec2(200, 200)));
+        const new_mem: usize = @intCast(c.nk_combo(ctx, &mem_labels_arr, mem_labels_arr.len, @intCast(mem_idx), 22, c.nk_vec2(200, 200)));
         cfg.EXTMEM = mem_vals[new_mem];
         c.nk_group_end(ctx);
     }
@@ -336,8 +344,7 @@ fn drawScreenTab(ctx: *c.nk_context, cfg: anytype) void {
         c.nk_label(ctx, "Frame skip:", c.NK_TEXT_LEFT);
         c.nk_layout_row_push(ctx, 160);
         const cur_skip: usize = @intCast(cz.usa_get_draw_skip());
-        const new_skip: usize = @intCast(c.nk_combo(ctx, &skip_labels,
-            skip_labels.len, @intCast(cur_skip), 22, c.nk_vec2(160, 150)));
+        const new_skip: usize = @intCast(c.nk_combo(ctx, &skip_labels, skip_labels.len, @intCast(cur_skip), 22, c.nk_vec2(160, 150)));
         if (new_skip != cur_skip) cz.usa_set_draw_skip(@intCast(new_skip));
         c.nk_layout_row_end(ctx);
         c.nk_group_end(ctx);
@@ -368,9 +375,7 @@ fn drawScreenTab(ctx: *c.nk_context, cfg: anytype) void {
         const gc_color16 = [_]u8{ 0, 0, 1, 2 };
         var gc_idx: usize = 0;
         if (cfg.grcg != 0) {
-            if (cfg.color16 == 0) gc_idx = 1
-            else if (cfg.color16 == 1) gc_idx = 2
-            else gc_idx = 3;
+            if (cfg.color16 == 0) gc_idx = 1 else if (cfg.color16 == 1) gc_idx = 2 else gc_idx = 3;
         }
         for (gc_labels, 0..) |lbl, i| {
             const was: c_int = if (gc_idx == i) 1 else 0;
@@ -437,10 +442,12 @@ fn drawSoundTab(ctx: *c.nk_context, cfg: anytype) void {
         c.nk_layout_row_push(ctx, 190);
         var snd_idx: usize = 0;
         for (snd_board_vals, 0..) |v, i| {
-            if (cfg.SOUND_SW == v) { snd_idx = i; break; }
+            if (cfg.SOUND_SW == v) {
+                snd_idx = i;
+                break;
+            }
         }
-        const new_snd: usize = @intCast(c.nk_combo(ctx, &snd_board_labels,
-            snd_board_labels.len, @intCast(snd_idx), 22, c.nk_vec2(190, 170)));
+        const new_snd: usize = @intCast(c.nk_combo(ctx, &snd_board_labels, snd_board_labels.len, @intCast(snd_idx), 22, c.nk_vec2(190, 170)));
         cfg.SOUND_SW = snd_board_vals[new_snd];
         c.nk_layout_row_end(ctx);
 
@@ -465,8 +472,7 @@ fn drawSoundTab(ctx: *c.nk_context, cfg: anytype) void {
         c.nk_label(ctx, "Beep volume:", c.NK_TEXT_LEFT);
         c.nk_layout_row_push(ctx, 120);
         const cur_beep: usize = @intCast(cfg.BEEP_VOL);
-        const new_beep: usize = @intCast(c.nk_combo(ctx, &beep_labels,
-            beep_labels.len, @intCast(cur_beep), 22, c.nk_vec2(120, 130)));
+        const new_beep: usize = @intCast(c.nk_combo(ctx, &beep_labels, beep_labels.len, @intCast(cur_beep), 22, c.nk_vec2(120, 130)));
         if (new_beep != cur_beep) cz.usa_beep_setvol(@intCast(new_beep));
         c.nk_layout_row_end(ctx);
 

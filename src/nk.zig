@@ -34,7 +34,7 @@ pub fn setupFont(px: f32) void {
 
     const font = c.nk_font_atlas_add_from_memory(
         font_atlas,
-        @constCast(@ptrCast(ja_font)),
+        @ptrCast(@constCast(ja_font)),
         ja_font.len,
         px,
         &cfg,

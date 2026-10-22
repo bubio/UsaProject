@@ -183,16 +183,16 @@ export fn init() void {
 
     // Full-screen quad; placement within the window is done via sg.applyViewport.
     const vertices = [_]f32{
-        -1.0,  1.0, 0.5,   0.0, 0.0,
-         1.0,  1.0, 0.5,   1.0, 0.0,
-         1.0, -1.0, 0.5,   1.0, 1.0,
-        -1.0, -1.0, 0.5,   0.0, 1.0,
+        -1.0, 1.0,  0.5, 0.0, 0.0,
+        1.0,  1.0,  0.5, 1.0, 0.0,
+        1.0,  -1.0, 0.5, 1.0, 1.0,
+        -1.0, -1.0, 0.5, 0.0, 1.0,
     };
     state.bindings.vertex_buffers[0] = sg.makeBuffer(.{
         .data = sg.asRange(&vertices),
     });
 
-    const indices = [_]u16{ 0, 1, 2,  0, 2, 3 };
+    const indices = [_]u16{ 0, 1, 2, 0, 2, 3 };
     state.bindings.index_buffer = sg.makeBuffer(.{
         .usage = .{ .index_buffer = true },
         .data = sg.asRange(&indices),
