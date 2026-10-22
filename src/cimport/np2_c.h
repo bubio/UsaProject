@@ -1,0 +1,11 @@
+// translate-c entry point for the NP2kai core (imported as "np2_c").
+#include "compiler.h"
+#include "pccore.h"
+#include "dosio.h"
+#include "scrnmng.h"
+#include "soundmng.h"
+#include "sysmng.h"
+#include "taskmng.h"
+#include "keystat.h"
+#include "vram/scrndraw.h"
+#include "sound/sound.h"

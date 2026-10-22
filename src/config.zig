@@ -4,9 +4,7 @@ const input = @import("input.zig");
 const history = @import("history.zig");
 const cli = @import("cli.zig");
 
-const c = @cImport({
-    @cInclude("stdio.h");
-});
+const c = @import("stdio_c");
 
 const cfg_filename = "np2kai.cfg";
 const section_header = "[NekoProjectIIkai]\n";
@@ -23,7 +21,7 @@ pub fn setDataDir(dir: []const u8) void {
 fn cfgPathZ(buf: *[4096:0]u8) ?[*:0]const u8 {
     if (dir_len == 0) return null;
     const dir = dir_buf[0..dir_len];
-    const result = std.fmt.bufPrintZ(buf, "{s}/{s}", .{ dir, cfg_filename }) catch return null;
+    const result = std.mem.printSentinel(buf, "{s}/{s}", .{ dir, cfg_filename }, 0) catch return null;
     return result.ptr;
 }
 
@@ -174,7 +172,7 @@ pub fn save() void {
     // model
     const model_slice = std.mem.sliceTo(&cz.c.np2cfg.model, 0);
     var mbuf: [64:0]u8 = undefined;
-    const mline = std.fmt.bufPrintZ(&mbuf, "pc_model = {s}\n", .{model_slice}) catch return;
+    const mline = std.mem.printSentinel(&mbuf, "pc_model = {s}\n", .{model_slice}, 0) catch return;
     _ = c.fputs(mline.ptr, fp);
 
     const ents = getEntries();
@@ -183,15 +181,15 @@ pub fn save() void {
         const line = switch (e.kind) {
             .u8_val => blk: {
                 const p: *const u8 = @ptrCast(@alignCast(e.ptr));
-                break :blk std.fmt.bufPrintZ(&wbuf, "{s} = {d}\n", .{ e.key, p.* }) catch continue;
+                break :blk std.mem.printSentinel(&wbuf, "{s} = {d}\n", .{ e.key, p.* }, 0) catch continue;
             },
             .u16_val => blk: {
                 const p: *const u16 = @ptrCast(@alignCast(e.ptr));
-                break :blk std.fmt.bufPrintZ(&wbuf, "{s} = {d}\n", .{ e.key, p.* }) catch continue;
+                break :blk std.mem.printSentinel(&wbuf, "{s} = {d}\n", .{ e.key, p.* }, 0) catch continue;
             },
             .u32_val => blk: {
                 const p: *const u32 = @ptrCast(@alignCast(e.ptr));
-                break :blk std.fmt.bufPrintZ(&wbuf, "{s} = {d}\n", .{ e.key, p.* }) catch continue;
+                break :blk std.mem.printSentinel(&wbuf, "{s} = {d}\n", .{ e.key, p.* }, 0) catch continue;
             },
         };
         _ = c.fputs(line.ptr, fp);
@@ -203,7 +201,7 @@ pub fn save() void {
     writeU8Field(fp, &obuf, "DrawSkip", cz.usa_get_draw_skip());
     writeU8Field(fp, &obuf, "keyboard", cz.usa_get_keyboard());
     writeU8Field(fp, &obuf, "cpu_type", @intCast(cz.usa_get_cpu_index()));
-    if (std.fmt.bufPrintZ(&obuf, "MouseSensi = {d}\n", .{input.getSensitivity()})) |line| {
+    if (std.mem.printSentinel(&obuf, "MouseSensi = {d}\n", .{input.getSensitivity()}, 0)) |line| {
         _ = c.fputs(line.ptr, fp);
     } else |_| {}
 
@@ -217,13 +215,13 @@ pub fn save() void {
 }
 
 fn writeU8Field(fp: *c.FILE, buf: *[64:0]u8, key: []const u8, val: u8) void {
-    const line = std.fmt.bufPrintZ(buf, "{s} = {d}\n", .{ key, val }) catch return;
+    const line = std.mem.printSentinel(buf, "{s} = {d}\n", .{ key, val }, 0) catch return;
     _ = c.fputs(line.ptr, fp);
 }
 
 fn writeRecent(fp: *c.FILE, buf: *[4160:0]u8, kind: cli.DiskKind, prefix: []const u8) void {
     for (0..history.count(kind)) |i| {
-        const line = std.fmt.bufPrintZ(buf, "{s}{d} = {s}\n", .{ prefix, i, history.at(kind, i) }) catch continue;
+        const line = std.mem.printSentinel(buf, "{s}{d} = {s}\n", .{ prefix, i, history.at(kind, i) }, 0) catch continue;
         _ = c.fputs(line.ptr, fp);
     }
 }

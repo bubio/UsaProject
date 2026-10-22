@@ -309,7 +309,7 @@ fn drawSystemTab(ctx: *c.nk_context, cfg: anytype) void {
         input.setSensitivity(@intFromFloat(s_f));
         c.nk_layout_row_push(ctx, 45);
         var sbuf: [8:0]u8 = undefined;
-        const sstr = std.fmt.bufPrintZ(&sbuf, "{d}%", .{input.getSensitivity()}) catch "?";
+        const sstr = std.mem.printSentinel(&sbuf, "{d}%", .{input.getSensitivity()}, 0) catch "?";
         c.nk_label(ctx, sstr.ptr, c.NK_TEXT_RIGHT);
         c.nk_layout_row_end(ctx);
         c.nk_group_end(ctx);
@@ -453,7 +453,7 @@ fn drawSoundTab(ctx: *c.nk_context, cfg: anytype) void {
         cfg.delayms = @intFromFloat(delay_f);
         c.nk_layout_row_push(ctx, 35);
         var delay_buf: [8:0]u8 = undefined;
-        const delay_str = std.fmt.bufPrintZ(&delay_buf, "{d}", .{cfg.delayms}) catch "?";
+        const delay_str = std.mem.printSentinel(&delay_buf, "{d}", .{cfg.delayms}, 0) catch "?";
         c.nk_label(ctx, delay_str.ptr, c.NK_TEXT_RIGHT);
         c.nk_layout_row_end(ctx);
         c.nk_group_end(ctx);
@@ -504,7 +504,7 @@ fn drawSoundTab(ctx: *c.nk_context, cfg: anytype) void {
             }
             c.nk_layout_row_push(ctx, 35);
             var vbuf: [8:0]u8 = undefined;
-            const vstr = std.fmt.bufPrintZ(&vbuf, "{d}", .{entry.val.*}) catch "?";
+            const vstr = std.mem.printSentinel(&vbuf, "{d}", .{entry.val.*}, 0) catch "?";
             c.nk_label(ctx, vstr.ptr, c.NK_TEXT_RIGHT);
             c.nk_layout_row_end(ctx);
         }

@@ -157,7 +157,7 @@ fn extractPlaylist(io: std.Io, allocator: std.mem.Allocator, m3u_path: [:0]const
     const cwd = std.Io.Dir.cwd();
     var list: std.ArrayList(Image) = .empty;
     for (entries.items) |e| {
-        const p = a.dupeZ(u8, e.path) catch return Error.OutOfMemory;
+        const p = a.dupeSentinel(u8, e.path, 0) catch return Error.OutOfMemory;
         cwd.access(io, p, .{}) catch {
             std.debug.print("!! playlist entry not found, skipping: {s}\n", .{p});
             continue;
@@ -526,13 +526,13 @@ fn dirname(path: []const u8) []const u8 {
 fn displayName(a: std.mem.Allocator, raw: []const u8, index: usize) ![:0]const u8 {
     if (raw.len == 0 or hasBlankStem(raw))
         return std.fmt.allocPrintSentinel(a, "Disk {d}", .{index + 1}, 0);
-    return a.dupeZ(u8, raw);
+    return a.dupeSentinel(u8, raw, 0);
 }
 
 /// Derive a renderable source label (archive/folder name) from a real path's
 /// basename — used verbatim (UTF-8) — falling back to `fallback` when empty.
 fn displaySource(a: std.mem.Allocator, raw: []const u8, fallback: []const u8) ![:0]const u8 {
-    return a.dupeZ(u8, if (raw.len == 0) fallback else raw);
+    return a.dupeSentinel(u8, if (raw.len == 0) fallback else raw, 0);
 }
 
 /// Drop the "<NNNN>_" extraction prefix that unpackImages prepends, recovering

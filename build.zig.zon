@@ -25,7 +25,7 @@
     .fingerprint = 0x14ba4c43ad61d144, // Changing this has security and trust implications.
     // Tracks the earliest Zig version that the package considers to be a
     // supported use case.
-    .minimum_zig_version = "0.16.0-dev.3142+5ccfeb926",
+    .minimum_zig_version = "0.17.0",
     // This field is optional.
     // Each dependency must either provide a `url` and `hash`, or a `path`.
     // `zig build --fetch` can be used to fetch all dependencies of a package, recursively.
@@ -33,12 +33,12 @@
     // internet connectivity.
     .dependencies = .{
         .sokol = .{
-            .url = "git+https://github.com/floooh/sokol-zig?ref=master#712ff4bf36761592656a7f648b2e80c59bfa6c95",
-            .hash = "sokol-0.1.0-pb1HK8RqNwCA1y9yR1y0VNeYPv0m2TxtWsQP9y3w6rrS",
+            .url = "git+https://github.com/floooh/sokol-zig?ref=master#3990b6629704f988041ac7e76ed010348eabd098",
+            .hash = "sokol-0.1.0-pb1HK6dlQgAVK2z6p9B8rDIzrWEdxn0DeVTcpZrXmATG",
         },
         .nfd_extended = .{
-            .url = "git+https://github.com/btzy/nativefiledialog-extended#c9cc7baf287f969686561674a555af5be7ac82b1",
-            .hash = "N-V-__8AAKkPCwAjJKxq_ALyZqptz0YE1UmwjlUlTGABdCPR",
+            .url = "git+https://github.com/btzy/nativefiledialog-extended?ref=v1.4.1#65b2f070a0fcfee0d453a64e770a217ab0b6ff4f",
+            .hash = "N-V-__8AAEXCCwCK8Vr9EDrBMGx0bV1Lt7QiWcrFZ3X2DA75",
         },
     },
     .paths = .{

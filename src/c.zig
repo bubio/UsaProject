@@ -1,15 +1,4 @@
-pub const c = @cImport({
-    @cInclude("compiler.h");
-    @cInclude("pccore.h");
-    @cInclude("dosio.h");
-    @cInclude("scrnmng.h");
-    @cInclude("soundmng.h");
-    @cInclude("sysmng.h");
-    @cInclude("taskmng.h");
-    @cInclude("keystat.h");
-    @cInclude("vram/scrndraw.h");
-    @cInclude("sound/sound.h");
-});
+pub const c = @import("np2_c");
 
 // NP2kai core entry points (re-exported through c.zig so callers don't
 // need to mix cz.foo and c.bar).

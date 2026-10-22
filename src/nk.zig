@@ -5,20 +5,7 @@ const sapp = sokol.app;
 // 埋め込んだ TTF バイト列。アプリ全体で生存する静的データ。
 const ja_font = @embedFile("ja_font");
 
-pub const c = @cImport({
-    @cInclude("sokol_gfx.h");
-    @cInclude("sokol_app.h");
-    @cDefine("NK_INCLUDE_FIXED_TYPES", "");
-    @cDefine("NK_INCLUDE_STANDARD_IO", "");
-    @cDefine("NK_INCLUDE_DEFAULT_ALLOCATOR", "");
-    @cDefine("NK_INCLUDE_VERTEX_BUFFER_OUTPUT", "");
-    @cDefine("NK_INCLUDE_FONT_BAKING", "");
-    @cDefine("NK_INCLUDE_DEFAULT_FONT", "");
-    @cDefine("NK_INCLUDE_STANDARD_VARARGS", "");
-    @cDefine("NK_BUTTON_TRIGGER_ON_RELEASE", "");
-    @cInclude("nuklear.h");
-    @cInclude("sokol_nuklear.h");
-});
+pub const c = @import("nk_c");
 
 pub fn setup(desc: c.snk_desc_t) void {
     c.snk_setup(&desc);

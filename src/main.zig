@@ -162,7 +162,7 @@ export fn init() void {
         .width = FB_WIDTH,
         .height = FB_HEIGHT,
         .pixel_format = .RGBA8,
-        .usage = .{ .stream_update = true },
+        .usage = .{ .write_transient = true },
     });
 
     state.view = sg.makeView(.{
@@ -402,7 +402,7 @@ export fn frame() void {
         var i: u32 = 0;
         while (i < frames) : (i += 1) {
             // Only the final emulated frame of this host frame is ever uploaded
-            // to the GPU (a single updateImage() after the loop), so only it
+            // to the GPU (a single writeImageTransient() after the loop), so only it
             // needs the expensive scrndraw_draw() + HSV filter pass. Intermediate
             // frames just advance the CPU with draw=false; rendering them — and
             // especially running the per-pixel HSV-smooth filter on them — is
@@ -441,9 +441,10 @@ export fn frame() void {
 
     pixel.rgb565BufferToRgba8(&fb_rgba, cz.pc98_framebuffer[0 .. FB_WIDTH * FB_HEIGHT]);
 
-    var img_data = sg.ImageData{};
-    img_data.mip_levels[0] = sg.asRange(&fb_rgba);
-    sg.updateImage(state.image, img_data);
+    sg.writeImageTransient(.{
+        .src = .{ .data = sg.asRange(&fb_rgba) },
+        .dst = .{ .image = state.image },
+    });
 
     // Update UI overlay state.
     cz.usa_lamp_tick();

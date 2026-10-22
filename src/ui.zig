@@ -146,8 +146,8 @@ pub fn setup() void {
     });
 
     const desc = c.snk_image_desc_t{
-        .texture_view = @bitCast(view),
-        .sampler = @bitCast(sampler),
+        .texture_view = .{ .id = view.id },
+        .sampler = .{ .id = sampler.id },
     };
     about_icon = c.snk_make_image(&desc);
     about_icon_valid = true;
@@ -218,13 +218,13 @@ pub fn flushPendingActions() void {
 
 fn checkLabel(buf: *[64]u8, checked: bool, label: []const u8) [*:0]const u8 {
     const prefix: []const u8 = if (checked) "[*] " else "[ ] ";
-    const result = std.fmt.bufPrintZ(buf, "{s}{s}", .{ prefix, label }) catch "?";
+    const result = std.mem.printSentinel(buf, "{s}{s}", .{ prefix, label }, 0) catch "?";
     return result.ptr;
 }
 
 fn radioLabel(buf: *[64]u8, selected: bool, label: []const u8) [*:0]const u8 {
     const prefix: []const u8 = if (selected) "(*) " else "( ) ";
-    const result = std.fmt.bufPrintZ(buf, "{s}{s}", .{ prefix, label }) catch "?";
+    const result = std.mem.printSentinel(buf, "{s}{s}", .{ prefix, label }, 0) catch "?";
     return result.ptr;
 }
 
@@ -478,12 +478,12 @@ fn drawStatusBar(ctx: *c.nk_context, win_w: u32, win_h: u32, st: State) void {
         c.nk_layout_row_template_end(ctx);
 
         var mbuf: [16]u8 = undefined;
-        const mline = std.fmt.bufPrintZ(&mbuf, "{s}", .{st.model}) catch "?";
+        const mline = std.mem.printSentinel(&mbuf, "{s}", .{st.model}, 0) catch "?";
         c.nk_label(ctx, mline.ptr, c.NK_TEXT_LEFT);
         drawSeparatorCell(ctx);
 
         var cbuf: [16]u8 = undefined;
-        const cline = std.fmt.bufPrintZ(&cbuf, "{d:.1}MHz", .{st.cpu_mhz}) catch "?";
+        const cline = std.mem.printSentinel(&cbuf, "{d:.1}MHz", .{st.cpu_mhz}, 0) catch "?";
         c.nk_label(ctx, cline.ptr, c.NK_TEXT_LEFT);
         drawSeparatorCell(ctx);
 
@@ -500,7 +500,7 @@ fn drawStatusBar(ctx: *c.nk_context, win_w: u32, win_h: u32, st: State) void {
         drawSeparatorCell(ctx);
 
         var fbuf: [16]u8 = undefined;
-        const fline = std.fmt.bufPrintZ(&fbuf, "{d:.1} FPS", .{st.fps}) catch "? FPS";
+        const fline = std.mem.printSentinel(&fbuf, "{d:.1} FPS", .{st.fps}, 0) catch "? FPS";
         c.nk_label(ctx, fline.ptr, c.NK_TEXT_RIGHT);
     }
     c.nk_end(ctx);
@@ -1024,7 +1024,7 @@ pub fn handleDrop() void {
     const n = sapp.getNumDroppedFiles();
     var i: i32 = 0;
     while (i < n) : (i += 1) {
-        const owned = disk_alloc.dupeZ(u8, sapp.getDroppedFilePath(i)) catch {
+        const owned = disk_alloc.dupeSentinel(u8, sapp.getDroppedFilePath(i), 0) catch {
             std.debug.print("!! out of memory queueing dropped file\n", .{});
             return;
         };
@@ -1306,7 +1306,7 @@ fn drawRecentSelect(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
                     const path = history.at(rs_kind, i);
                     const base = std.fs.path.basename(path);
                     var lbuf: [512]u8 = undefined;
-                    const label = std.fmt.bufPrintZ(&lbuf, "{s}", .{base}) catch continue;
+                    const label = std.mem.printSentinel(&lbuf, "{s}", .{base}, 0) catch continue;
                     if (c.nk_button_label(ctx, label.ptr) != 0) chosen = path;
                 }
             }
@@ -1403,7 +1403,7 @@ fn drawStateMsg(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
     var dismiss = false;
     if (c.nk_begin(ctx, title, bounds, flags) != 0) {
         var tbuf: [256]u8 = undefined;
-        const msg = std.fmt.bufPrintZ(&tbuf, "{s}", .{ss_text_buf[0..ss_text_len]}) catch "?";
+        const msg = std.mem.printSentinel(&tbuf, "{s}", .{ss_text_buf[0..ss_text_len]}, 0) catch "?";
         c.nk_layout_row_dynamic(ctx, 70, 1);
         c.nk_label_wrap(ctx, msg.ptr);
 
@@ -1422,7 +1422,7 @@ fn drawStateMsg(ctx: *c.nk_context, win_w: u32, win_h: u32) void {
     if (do_load) {
         ss_on = false;
         // Copy the held path into an owned slice for the pending slot.
-        const p = disk_alloc.dupeZ(u8, ss_pending_path[0..ss_pending_path_len]) catch {
+        const p = disk_alloc.dupeSentinel(u8, ss_pending_path[0..ss_pending_path_len], 0) catch {
             ss_showError("Out of memory.");
             return;
         };

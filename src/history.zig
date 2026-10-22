@@ -17,7 +17,7 @@ pub const cap = 8;
 const alloc = std.heap.page_allocator;
 
 const List = struct {
-    items: [cap]?[:0]u8 = .{null} ** cap,
+    items: [cap]?[:0]u8 = @splat(null),
     len: usize = 0,
 };
 
@@ -55,7 +55,7 @@ pub fn record(kind: cli.DiskKind, path: []const u8) void {
         return;
     }
 
-    const dup = alloc.dupeZ(u8, path) catch return;
+    const dup = alloc.dupeSentinel(u8, path, 0) catch return;
 
     if (l.len < cap) {
         l.len += 1;
@@ -74,7 +74,7 @@ pub fn append(kind: cli.DiskKind, path: []const u8) void {
     const l = listFor(kind);
     if (l.len >= cap) return;
     if (indexOf(l, path) != null) return;
-    const dup = alloc.dupeZ(u8, path) catch return;
+    const dup = alloc.dupeSentinel(u8, path, 0) catch return;
     l.items[l.len] = dup;
     l.len += 1;
 }

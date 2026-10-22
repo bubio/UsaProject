@@ -63,7 +63,7 @@ It also incorporates several open-source components:
 
 ### Prerequisites
 
-*   [Zig 0.16.0-dev](https://ziglang.org/download/) or later.
+*   [Zig 0.17.0](https://ziglang.org/download/) or later.
 
 ### macOS
 

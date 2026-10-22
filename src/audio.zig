@@ -11,7 +11,7 @@ pub fn convertPcmToFloat(dst: []f32, src: [*]const i32, samples: usize) void {
 }
 
 test "convertPcmToFloat handles boundary values" {
-    var dst = [_]f32{0.0} ** 6;
+    var dst: [6]f32 = @splat(0.0);
     const src = [_]i32{
         32767, -32768, // Max / Min
         0,     1,      // Zero / Small positive
